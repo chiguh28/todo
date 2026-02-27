@@ -1,5 +1,46 @@
 const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
+// ============ 拡張機能レジストリ ============
+window.TaskFlow = (() => {
+  const _extensions = [];
+  const _tabs        = [];   // { id, label, icon, component }
+  const _formFields  = [];   // { component } — TaskFormModal の追加フィールド
+  const _columns     = [];   // { header, width, render } — TaskListView の追加列
+  const _headerActions = []; // { component } — ヘッダーの追加ボタン
+  const _hooks       = {};   // { 'task:created': [fn, ...], ... }
+
+  return {
+    // 拡張が呼ぶ登録 API
+    registerExtension(cfg) {
+      _extensions.push(cfg);
+      if (cfg.tabs)          _tabs.push(...cfg.tabs);
+      if (cfg.formFields)    _formFields.push(...cfg.formFields);
+      if (cfg.columns)       _columns.push(...cfg.columns);
+      if (cfg.headerActions) _headerActions.push(...cfg.headerActions);
+      if (cfg.hooks) {
+        for (const [ev, fn] of Object.entries(cfg.hooks)) {
+          (_hooks[ev] = _hooks[ev] || []).push(fn);
+        }
+      }
+    },
+    // コアが使うイベント発火
+    emit(event, data) {
+      (_hooks[event] || []).forEach(fn => {
+        try { fn(data); } catch(e) { console.error(`[TaskFlow] hook error (${event}):`, e); }
+      });
+    },
+    // 読み取り専用ビュー (コンポーネントから参照)
+    get tabs()          { return _tabs; },
+    get formFields()    { return _formFields; },
+    get columns()       { return _columns; },
+    get headerActions() { return _headerActions; },
+    // 全拡張ロード後に index.html のブートスクリプトが呼ぶ
+    _boot: null,
+    // 拡張から使えるユーティリティ (api は下で注入)
+    api: null,
+  };
+})();
+
 // ============ API Helpers ============
 const api = {
   async get(url) { const r = await fetch(url); return r.json(); },
@@ -13,6 +54,7 @@ const api = {
   },
   async del(url) { const r = await fetch(url, { method:'DELETE' }); return r.json(); },
 };
+TaskFlow.api = api;
 
 // ============ Utilities ============
 const formatDate = (d) => d ? new Date(d).toLocaleDateString('ja-JP', { month:'short', day:'numeric' }) : '';
@@ -24,7 +66,7 @@ const STATUS_LABELS = { todo: '未着手', in_progress: '進行中', done: '完�
 const USER_COLORS = ['#4A90D9','#E8913A','#50B83C','#A78BFA','#FF6B8A','#00C9A7','#FFD93D'];
 const HOURS_PER_DAY = 8;
 
-// ---- Japanese public holidays (祝日) ----
+// ---- 祝日計算 ----
 const getJapaneseHolidays = (year) => {
   const holidays = new Set();
   const add = (m, d) => holidays.add(`${year}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`);
@@ -34,31 +76,16 @@ const getJapaneseHolidays = (year) => {
     const firstMon = dow <= 1 ? 1 + (1 - dow) : 1 + (8 - dow);
     return firstMon + (n - 1) * 7;
   };
-
-  add(1, 1);                       // 元日
-  add(1, nthMonday(1, 2));         // 成人の日
-  add(2, 11);                      // 建国記念の日
-  add(2, 23);                      // 天皇誕生日
-  // 春分の日 (approximate)
-  const shunbun = year <= 2099 ? Math.floor(20.8431 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4)) : 20;
+  add(1, 1); add(1, nthMonday(1, 2)); add(2, 11); add(2, 23);
+  const shunbun = Math.floor(20.8431 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4));
   add(3, shunbun);
-  add(4, 29);                      // 昭和の日
-  add(5, 3);                       // 憲法記念日
-  add(5, 4);                       // みどりの日
-  add(5, 5);                       // こどもの日
-  add(7, nthMonday(7, 3));         // 海の日
-  add(8, 11);                      // 山の日
-  add(9, nthMonday(9, 3));         // 敬老の日
-  // 秋分の日 (approximate)
-  const shuubun = year <= 2099 ? Math.floor(23.2488 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4)) : 23;
+  add(4, 29); add(5, 3); add(5, 4); add(5, 5);
+  add(7, nthMonday(7, 3)); add(8, 11); add(9, nthMonday(9, 3));
+  const shuubun = Math.floor(23.2488 + 0.242194 * (year - 1980) - Math.floor((year - 1980) / 4));
   add(9, shuubun);
-  add(10, nthMonday(10, 2));       // スポーツの日
-  add(11, 3);                      // 文化の日
-  add(11, 23);                     // 勤労感謝の日
-
-  // 振替休日: holiday on Sunday → next Monday is substitute
-  const sorted = [...holidays].sort();
-  for (const ds of sorted) {
+  add(10, nthMonday(10, 2)); add(11, 3); add(11, 23);
+  // 振替休日
+  for (const ds of [...holidays].sort()) {
     const dt = new Date(ds + 'T00:00:00');
     if (dt.getDay() === 0) {
       let sub = new Date(dt);
@@ -69,45 +96,38 @@ const getJapaneseHolidays = (year) => {
   }
   return holidays;
 };
-
-// Cache holidays per year
 const _holidayCache = {};
-const isJapaneseHoliday = (dateStr) => {
-  const y = parseInt(dateStr.slice(0, 4));
+const isJapaneseHoliday = (ds) => {
+  const y = parseInt(ds.slice(0, 4));
   if (!_holidayCache[y]) _holidayCache[y] = getJapaneseHolidays(y);
-  return _holidayCache[y].has(dateStr);
+  return _holidayCache[y].has(ds);
 };
-
-const isHoliday = (dateStr, mode) => {
-  const d = new Date(dateStr + 'T00:00:00');
-  const dow = d.getDay();
+const isHoliday = (ds, mode) => {
+  const dow = new Date(ds + 'T00:00:00').getDay();
   if (dow === 0 || dow === 6) return true;
-  if (mode === 'weekends_holidays' && isJapaneseHoliday(dateStr)) return true;
+  if (mode === 'weekends_holidays' && isJapaneseHoliday(ds)) return true;
   return false;
 };
 
-// Calculate end_date from start_date + estimated_hours, skipping holidays
+// 工数 → 終了日計算
 const calcEndDate = (startDate, estimatedHours, holidayMode) => {
   if (!startDate || !estimatedHours || estimatedHours <= 0) return startDate;
-  let remainingDays = Math.ceil(estimatedHours / HOURS_PER_DAY);
+  let remaining = Math.ceil(estimatedHours / HOURS_PER_DAY);
   const d = new Date(startDate + 'T00:00:00');
-  // If start_date itself is a holiday, advance to first working day
   while (isHoliday(toDateStr(d), holidayMode)) d.setDate(d.getDate() + 1);
-  remainingDays--; // first working day counts
-  while (remainingDays > 0) {
+  remaining--;
+  while (remaining > 0) {
     d.setDate(d.getDate() + 1);
-    if (!isHoliday(toDateStr(d), holidayMode)) remainingDays--;
+    if (!isHoliday(toDateStr(d), holidayMode)) remaining--;
   }
   return toDateStr(d);
 };
 
-// Enrich tasks with computed end_date
 const enrichTasks = (tasks, holidayMode) => tasks.map(t => ({
   ...t,
   end_date: calcEndDate(t.start_date, t.estimated_hours, holidayMode),
 }));
 
-// Schedule health: compares today vs end_date
 const getScheduleStatus = (task) => {
   if (task.status === 'done') return 'done';
   const today = new Date().toISOString().split('T')[0];
@@ -117,12 +137,11 @@ const getScheduleStatus = (task) => {
 };
 const SCHEDULE_BADGES = { overdue: '遅延', 'due-soon': '期限近' };
 
-// Progress bar color based on schedule health
 const getProgressColor = (task) => {
   if (task.progress >= 100 || task.status === 'done') return 'var(--success)';
-  const status = getScheduleStatus(task);
-  if (status === 'overdue') return 'var(--danger)';
-  if (status === 'due-soon' && task.progress < 80) return 'var(--warning)';
+  const s = getScheduleStatus(task);
+  if (s === 'overdue') return 'var(--danger)';
+  if (s === 'due-soon' && task.progress < 80) return 'var(--warning)';
   if (task.progress >= 50) return 'var(--accent)';
   return 'var(--warning)';
 };
@@ -148,10 +167,7 @@ function TaskFormModal({ task, users, holidayMode, onSave, onClose }) {
     () => calcEndDate(form.start_date, form.estimated_hours, holidayMode),
     [form.start_date, form.estimated_hours, holidayMode]
   );
-  const previewDays = useMemo(
-    () => Math.ceil(form.estimated_hours / HOURS_PER_DAY),
-    [form.estimated_hours]
-  );
+  const previewDays = useMemo(() => Math.ceil(form.estimated_hours / HOURS_PER_DAY), [form.estimated_hours]);
 
   const handleSubmit = () => {
     if (!form.title.trim()) return alert('タイトルを入力してください');
@@ -173,13 +189,11 @@ function TaskFormModal({ task, users, holidayMode, onSave, onClose }) {
           <input value={form.title} onChange={e => set('title', e.target.value)}
                  placeholder="タスク名を入力" autoFocus />
         </div>
-
         <div className="form-group">
           <label>説明</label>
           <textarea value={form.description} onChange={e => set('description', e.target.value)}
                     placeholder="タスクの詳細説明（任意）" />
         </div>
-
         <div className="form-row">
           <div className="form-group">
             <label>担当者</label>
@@ -205,7 +219,6 @@ function TaskFormModal({ task, users, holidayMode, onSave, onClose }) {
             </select>
           </div>
         </div>
-
         <div className="form-row">
           <div className="form-group">
             <label>開始日 *</label>
@@ -221,18 +234,21 @@ function TaskFormModal({ task, users, holidayMode, onSave, onClose }) {
           {previewDays}営業日（{formatDate(form.start_date)}〜{formatDate(previewEndDate)}）
           ※1日={HOURS_PER_DAY}時間
         </div>
-
         <div className="form-group">
           <label>進捗率: {form.progress}%</label>
           <input type="range" min="0" max="100" step="5"
                  value={form.progress} onChange={e => set('progress', parseInt(e.target.value))} />
         </div>
 
+        {/* 拡張フォームフィールド */}
+        {TaskFlow.formFields.map((field, i) => {
+          const Field = field.component;
+          return <Field key={i} form={form} setForm={setForm} task={task} users={users} />;
+        })}
+
         <div className="modal-footer">
           <button className="btn btn-secondary" onClick={onClose}>キャンセル</button>
-          <button className="btn btn-primary" onClick={handleSubmit}>
-            {isEdit ? '更新' : '作成'}
-          </button>
+          <button className="btn btn-primary" onClick={handleSubmit}>{isEdit ? '更新' : '作成'}</button>
         </div>
       </div>
     </div>
@@ -323,6 +339,10 @@ function TaskListView({ tasks, users, onEdit, onDelete }) {
             <th style={{width:70}}>ステータス</th>
             <th style={{width:130}}>期間</th>
             <th style={{width:130}}>進捗</th>
+            {/* 拡張列ヘッダー */}
+            {TaskFlow.columns.map((col, i) => (
+              <th key={`ext-h-${i}`} style={{width: col.width || 80}}>{col.header}</th>
+            ))}
             <th style={{width:80}}></th>
           </tr>
         </thead>
@@ -339,24 +359,14 @@ function TaskListView({ tasks, users, onEdit, onDelete }) {
                   </span>
                 ) : <span style={{ color:'var(--text-muted)' }}>—</span>}
               </td>
-              <td>
-                <span className={`priority-badge priority-${t.priority}`}>
-                  {PRIORITY_LABELS[t.priority]}
-                </span>
-              </td>
-              <td>
-                <span className={`status-badge status-${t.status}`}>
-                  {STATUS_LABELS[t.status]}
-                </span>
-              </td>
+              <td><span className={`priority-badge priority-${t.priority}`}>{PRIORITY_LABELS[t.priority]}</span></td>
+              <td><span className={`status-badge status-${t.status}`}>{STATUS_LABELS[t.status]}</span></td>
               <td>
                 {(() => {
                   const s = getScheduleStatus(t);
                   return (
                     <div className={`schedule-cell schedule-${s}`}>
-                      <span className="schedule-date">
-                        {formatDate(t.start_date)}〜{formatDate(t.end_date)}
-                      </span>
+                      <span className="schedule-date">{formatDate(t.start_date)}〜{formatDate(t.end_date)}</span>
                       <span className="schedule-hours">{t.estimated_hours}h</span>
                       {SCHEDULE_BADGES[s] && (
                         <span className={`schedule-badge schedule-badge-${s}`}>{SCHEDULE_BADGES[s]}</span>
@@ -372,6 +382,10 @@ function TaskListView({ tasks, users, onEdit, onDelete }) {
                 </span>
                 <span style={{ fontSize: 12, fontFamily: 'var(--mono)', color: getProgressColor(t) }}>{t.progress}%</span>
               </td>
+              {/* 拡張列セル */}
+              {TaskFlow.columns.map((col, ci) => (
+                <td key={`ext-c-${ci}`}>{col.render(t)}</td>
+              ))}
               <td>
                 <div className="action-btns">
                   <button className="btn btn-ghost btn-sm" onClick={() => onEdit(t)} title="編集">✏️</button>
@@ -402,10 +416,8 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
   const dateRange = useMemo(() => {
     if (tasks.length === 0) {
       const today = new Date();
-      const start = new Date(today);
-      start.setDate(start.getDate() - 7);
-      const end = new Date(today);
-      end.setDate(end.getDate() + 30);
+      const start = new Date(today); start.setDate(start.getDate() - 7);
+      const end = new Date(today);   end.setDate(end.getDate() + 30);
       return { start, end };
     }
     const dates = tasks.flatMap(t => [new Date(t.start_date), new Date(t.end_date)]);
@@ -419,22 +431,15 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
   const days = useMemo(() => {
     const result = [];
     const d = new Date(dateRange.start);
-    while (d <= dateRange.end) {
-      result.push(new Date(d));
-      d.setDate(d.getDate() + 1);
-    }
+    while (d <= dateRange.end) { result.push(new Date(d)); d.setDate(d.getDate() + 1); }
     return result;
   }, [dateRange]);
 
   const months = useMemo(() => {
-    const m = [];
-    let current = null;
+    const m = []; let current = null;
     days.forEach((d, i) => {
       const key = `${d.getFullYear()}-${d.getMonth()}`;
-      if (key !== current) {
-        current = key;
-        m.push({ year: d.getFullYear(), month: d.getMonth(), startIndex: i, count: 0 });
-      }
+      if (key !== current) { current = key; m.push({ year: d.getFullYear(), month: d.getMonth(), count: 0 }); }
       m[m.length - 1].count++;
     });
     return m;
@@ -445,36 +450,21 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
   const totalWidth = days.length * DAY_WIDTH;
 
   const handleChartScroll = useCallback((e) => {
-    if (sidebarBodyRef.current) {
-      sidebarBodyRef.current.scrollTop = e.target.scrollTop;
-    }
+    if (sidebarBodyRef.current) sidebarBodyRef.current.scrollTop = e.target.scrollTop;
   }, []);
 
   useEffect(() => {
-    if (chartRef.current && todayIndex >= 0) {
+    if (chartRef.current && todayIndex >= 0)
       chartRef.current.scrollLeft = Math.max(0, todayIndex * DAY_WIDTH - 300);
-    }
   }, [todayIndex]);
 
   const handleBarClick = (e, task) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    setPopover({
-      task,
-      x: rect.left + rect.width / 2,
-      y: rect.bottom + 8,
-      progress: task.progress,
-    });
-  };
-
-  const handleProgressChange = (value) => {
-    setPopover(prev => ({ ...prev, progress: value }));
+    setPopover({ task, x: rect.left + rect.width / 2, y: rect.bottom + 8, progress: task.progress });
   };
 
   const handleProgressSave = () => {
-    if (popover) {
-      onUpdateProgress(popover.task.id, popover.progress);
-      setPopover(null);
-    }
+    if (popover) { onUpdateProgress(popover.task.id, popover.progress); setPopover(null); }
   };
 
   if (tasks.length === 0) {
@@ -488,13 +478,11 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
 
   return (
     <div className="gantt-container">
-      {/* Sidebar */}
       <div className="gantt-sidebar">
         <div className="gantt-sidebar-header">
           <span>タスク一覧</span>
           <button className={`btn btn-ghost btn-sm gantt-sort-btn ${sortByDate ? 'active' : ''}`}
-                  onClick={() => setSortByDate(v => !v)}
-                  title="開始日順にソート">
+                  onClick={() => setSortByDate(v => !v)} title="開始日順にソート">
             📅 開始日順
           </button>
         </div>
@@ -503,20 +491,14 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
             <div key={t.id} className="gantt-sidebar-row" onClick={() => onEdit(t)}>
               <span className="assignee-dot" style={{ background: t.assignee_color || '#666', flexShrink:0 }} />
               <span className="gantt-sidebar-title">{t.title}</span>
-              <span style={{ fontSize:10, fontFamily:'var(--mono)', color:'var(--text-muted)', flexShrink:0 }}>
-                {t.estimated_hours}h
-              </span>
-              <span style={{ fontSize:11, fontFamily:'var(--mono)', color: getProgressColor(t), flexShrink:0 }}>
-                {t.progress}%
-              </span>
+              <span style={{ fontSize:10, fontFamily:'var(--mono)', color:'var(--text-muted)', flexShrink:0 }}>{t.estimated_hours}h</span>
+              <span style={{ fontSize:11, fontFamily:'var(--mono)', color: getProgressColor(t), flexShrink:0 }}>{t.progress}%</span>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Chart */}
       <div className="gantt-chart-area" ref={chartRef} onScroll={handleChartScroll}>
-        {/* Header */}
         <div className="gantt-header" style={{ width: totalWidth }}>
           <div className="gantt-header-months">
             {months.map((m, i) => (
@@ -528,11 +510,9 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
           <div className="gantt-header-days">
             {days.map((d, i) => {
               const ds = toDateStr(d);
-              const off = isHoliday(ds, holidayMode);
-              const isToday = ds === todayStr;
               return (
                 <div key={i}
-                     className={`gantt-day-cell ${off ? 'weekend' : ''} ${isToday ? 'today' : ''}`}
+                     className={`gantt-day-cell ${isHoliday(ds, holidayMode) ? 'weekend' : ''} ${ds === todayStr ? 'today' : ''}`}
                      style={{ width: DAY_WIDTH, minWidth: DAY_WIDTH }}>
                   {d.getDate()}
                 </div>
@@ -541,18 +521,14 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
           </div>
         </div>
 
-        {/* Body */}
         <div className="gantt-body" style={{ width: totalWidth, position: 'relative' }}>
           {sortedTasks.map(t => (
             <div key={t.id} className="gantt-row">
-              {days.map((d, i) => {
-                const off = isHoliday(toDateStr(d), holidayMode);
-                return (
-                  <div key={i}
-                       className={`gantt-cell ${off ? 'weekend' : ''}`}
-                       style={{ width: DAY_WIDTH, minWidth: DAY_WIDTH }} />
-                );
-              })}
+              {days.map((d, i) => (
+                <div key={i}
+                     className={`gantt-cell ${isHoliday(toDateStr(d), holidayMode) ? 'weekend' : ''}`}
+                     style={{ width: DAY_WIDTH, minWidth: DAY_WIDTH }} />
+              ))}
             </div>
           ))}
 
@@ -563,17 +539,14 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
             const width = duration * DAY_WIDTH;
             const barColor = t.assignee_color || '#666';
             const isOverdue = getScheduleStatus(t) === 'overdue';
-
             return (
               <div key={t.id} className="gantt-bar-wrapper"
                    style={{ top: rowIndex * 40, left, width }}
                    onClick={(e) => handleBarClick(e, t)}>
-                {/* Schedule bar (top) */}
                 <div className={`gantt-bar-schedule ${isOverdue ? 'gantt-bar-overdue' : ''}`}
                      style={{ background: barColor + '20', border: isOverdue ? '2px solid var(--danger)' : `2px solid ${barColor}` }}>
                   <div className="gantt-bar-label">{width > 80 ? t.title : ''}</div>
                 </div>
-                {/* Progress bar (bottom) */}
                 <div className="gantt-bar-actual"
                      style={{ width: `${t.progress}%`, background: getProgressColor(t) }} />
               </div>
@@ -587,17 +560,15 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
         </div>
       </div>
 
-      {/* Progress Popover */}
       {popover && (
         <>
           <div style={{ position:'fixed', inset:0, zIndex:49 }} onClick={() => setPopover(null)} />
-          <div className="progress-popover"
-               style={{ left: popover.x - 100, top: popover.y }}>
+          <div className="progress-popover" style={{ left: popover.x - 100, top: popover.y }}>
             <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 8 }}>{popover.task.title}</div>
             <div className="progress-popover-value">{popover.progress}%</div>
             <input type="range" min="0" max="100" step="5"
                    value={popover.progress}
-                   onChange={e => handleProgressChange(parseInt(e.target.value))} />
+                   onChange={e => setPopover(prev => ({ ...prev, progress: parseInt(e.target.value) }))} />
             <div style={{ display:'flex', gap: 6, marginTop: 8, justifyContent: 'flex-end' }}>
               <button className="btn btn-secondary btn-sm" onClick={() => setPopover(null)}>閉じる</button>
               <button className="btn btn-primary btn-sm" onClick={handleProgressSave}>保存</button>
@@ -633,21 +604,21 @@ function App() {
   useEffect(() => { fetchTasks(); fetchUsers(); }, []);
 
   const enrichedTasks = useMemo(() => enrichTasks(tasks, holidayMode), [tasks, holidayMode]);
-
-  const filteredTasks = useMemo(() => {
-    return enrichedTasks.filter(t => {
-      if (filterAssignee && String(t.assignee_id) !== filterAssignee) return false;
-      if (filterStatus && t.status !== filterStatus) return false;
-      if (searchQuery && !t.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
-      return true;
-    });
-  }, [enrichedTasks, filterAssignee, filterStatus, searchQuery]);
+  const filteredTasks = useMemo(() => enrichedTasks.filter(t => {
+    if (filterAssignee && String(t.assignee_id) !== filterAssignee) return false;
+    if (filterStatus && t.status !== filterStatus) return false;
+    if (searchQuery && !t.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    return true;
+  }), [enrichedTasks, filterAssignee, filterStatus, searchQuery]);
 
   const handleSaveTask = async (formData) => {
+    let savedTask;
     if (editingTask?.id) {
-      await api.put(`/api/tasks/${editingTask.id}`, formData);
+      savedTask = await api.put(`/api/tasks/${editingTask.id}`, formData);
+      TaskFlow.emit('task:updated', { task: savedTask });
     } else {
-      await api.post('/api/tasks', formData);
+      savedTask = await api.post('/api/tasks', formData);
+      TaskFlow.emit('task:created', { task: savedTask });
     }
     setShowTaskForm(false);
     setEditingTask(null);
@@ -657,17 +628,24 @@ function App() {
   const handleDeleteTask = async (id) => {
     if (!confirm('このタスクを削除しますか？')) return;
     await api.del(`/api/tasks/${id}`);
+    TaskFlow.emit('task:deleted', { taskId: id });
     fetchTasks();
   };
 
-  const handleEditTask = (task) => {
-    setEditingTask(task);
-    setShowTaskForm(true);
-  };
+  const handleEditTask = (task) => { setEditingTask(task); setShowTaskForm(true); };
 
   const handleUpdateProgress = async (taskId, progress) => {
     await api.put(`/api/tasks/${taskId}`, { progress, status: progress >= 100 ? 'done' : progress > 0 ? 'in_progress' : 'todo' });
     fetchTasks();
+  };
+
+  // 拡張ビューのレンダリング
+  const renderExtView = () => {
+    const extTab = TaskFlow.tabs.find(t => t.id === view);
+    if (!extTab) return null;
+    const ExtComponent = extTab.component;
+    return <ExtComponent tasks={enrichedTasks} users={users} api={api}
+                         refreshTasks={fetchTasks} refreshUsers={fetchUsers} />;
   };
 
   return (
@@ -677,15 +655,27 @@ function App() {
           <div className="app-logo-icon">✓</div>
           <span>TaskFlow</span>
         </div>
-
         <div className="tab-group">
           <button className={`tab-btn ${view === 'tasks' ? 'active' : ''}`}
                   onClick={() => setView('tasks')}>📋 タスク一覧</button>
           <button className={`tab-btn ${view === 'gantt' ? 'active' : ''}`}
                   onClick={() => setView('gantt')}>📊 ガントチャート</button>
+          {/* 拡張タブ */}
+          {TaskFlow.tabs.map(tab => (
+            <button key={tab.id}
+                    className={`tab-btn ${view === tab.id ? 'active' : ''}`}
+                    onClick={() => setView(tab.id)}>
+              {tab.icon} {tab.label}
+            </button>
+          ))}
         </div>
-
         <div className="header-actions">
+          {/* 拡張ヘッダーアクション */}
+          {TaskFlow.headerActions.map((action, i) => {
+            const Action = action.component;
+            return <Action key={i} tasks={enrichedTasks} users={users}
+                           refreshTasks={fetchTasks} refreshUsers={fetchUsers} />;
+          })}
           <button className="btn btn-secondary btn-sm" onClick={() => setShowUserManager(true)}>
             👥 メンバー
           </button>
@@ -695,7 +685,6 @@ function App() {
         </div>
       </div>
 
-      {/* Filter Bar */}
       <div className="filter-bar">
         <input className="search-input" placeholder="🔍 タスク検索..."
                value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
@@ -728,13 +717,12 @@ function App() {
             <TaskListView tasks={filteredTasks} users={users}
                           onEdit={handleEditTask} onDelete={handleDeleteTask} />
           </div>
-        ) : (
+        ) : view === 'gantt' ? (
           <GanttChart tasks={filteredTasks} users={users} holidayMode={holidayMode}
                       onUpdateProgress={handleUpdateProgress} onEdit={handleEditTask} />
-        )}
+        ) : renderExtView()}
       </div>
 
-      {/* Modals */}
       {showTaskForm && (
         <TaskFormModal task={editingTask} users={users} holidayMode={holidayMode}
                        onSave={handleSaveTask}
@@ -749,4 +737,5 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+// 全拡張ロード後に index.html のブートスクリプトが呼ぶ
+TaskFlow._boot = () => ReactDOM.createRoot(document.getElementById('root')).render(<App />);
