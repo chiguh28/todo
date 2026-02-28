@@ -9,9 +9,19 @@
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+{% for ext in extensions %}{% for css in ext.get_static_files().get('css', []) %}
+<link rel="stylesheet" href="/extensions/{{ ext.name }}/static/{{ css }}">
+{% endfor %}{% endfor %}
 </head>
 <body>
 <div id="root"></div>
+<!-- コア: TaskFlowレジストリ + 全コアコンポーネントを定義 (renderはしない) -->
 <script type="text/babel" src="{{ url_for('static', filename='app.jsx') }}"></script>
+<!-- 拡張JSX: 各拡張が TaskFlow.registerExtension() を呼ぶ -->
+{% for ext in extensions %}{% for jsx in ext.get_static_files().get('jsx', []) %}
+<script type="text/babel" src="/extensions/{{ ext.name }}/static/{{ jsx }}"></script>
+{% endfor %}{% endfor %}
+<!-- ブート: 全拡張ロード後にReactをマウント -->
+<script type="text/babel">TaskFlow._boot();</script>
 </body>
 </html>
