@@ -46,8 +46,40 @@ def init_db():
             FOREIGN KEY (parent_id) REFERENCES tasks(id) ON DELETE SET NULL
         );
     """)
-    # マイグレーション: 旧DBにestimated_hoursがない場合
+    # マイグレーション: 旧DBにestimated_hoursがない場合 / end_dateカラムを削除
     cols = [r[1] for r in db.execute("PRAGMA table_info(tasks)").fetchall()]
+    if 'end_date' in cols:
+        db.executescript("""
+            PRAGMA foreign_keys=OFF;
+            CREATE TABLE tasks_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                assignee_id INTEGER,
+                start_date DATE NOT NULL,
+                estimated_hours REAL NOT NULL DEFAULT 8,
+                progress INTEGER DEFAULT 0 CHECK(progress >= 0 AND progress <= 100),
+                priority TEXT DEFAULT 'medium' CHECK(priority IN ('low', 'medium', 'high')),
+                status TEXT DEFAULT 'todo' CHECK(status IN ('todo', 'in_progress', 'done')),
+                parent_id INTEGER,
+                sort_order INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (assignee_id) REFERENCES users(id),
+                FOREIGN KEY (parent_id) REFERENCES tasks(id) ON DELETE SET NULL
+            );
+            INSERT INTO tasks_new (id, title, description, assignee_id, start_date, estimated_hours,
+                progress, priority, status, parent_id, sort_order, created_at, updated_at)
+            SELECT id, title, description, assignee_id, start_date,
+                COALESCE(estimated_hours, 8),
+                progress, priority, status, parent_id, sort_order, created_at, updated_at
+            FROM tasks;
+            DROP TABLE tasks;
+            ALTER TABLE tasks_new RENAME TO tasks;
+            PRAGMA foreign_keys=ON;
+        """)
+        db.commit()
+        cols = [r[1] for r in db.execute("PRAGMA table_info(tasks)").fetchall()]
     if 'estimated_hours' not in cols:
         db.execute("ALTER TABLE tasks ADD COLUMN estimated_hours REAL NOT NULL DEFAULT 8")
         db.execute("""
