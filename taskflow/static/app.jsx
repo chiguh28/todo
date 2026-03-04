@@ -58,7 +58,13 @@ TaskFlow.api = api;
 
 // ============ Utilities ============
 const formatDate = (d) => d ? new Date(d).toLocaleDateString('ja-JP', { month:'short', day:'numeric' }) : '';
-const toDateStr = (d) => d instanceof Date ? d.toISOString().split('T')[0] : d;
+const toDateStr = (d) => {
+  if (!(d instanceof Date)) return d;
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+};
 const daysBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / 86400000);
 
 const PRIORITY_LABELS = { high: '高', medium: '中', low: '低' };
@@ -130,7 +136,7 @@ const enrichTasks = (tasks, holidayMode) => tasks.map(t => ({
 
 const getScheduleStatus = (task) => {
   if (task.status === 'done') return 'done';
-  const today = new Date().toISOString().split('T')[0];
+  const today = toDateStr(new Date());
   if (task.end_date < today) return 'overdue';
   if (daysBetween(today, task.end_date) <= 2) return 'due-soon';
   return 'on-track';
@@ -149,7 +155,7 @@ const getProgressColor = (task) => {
 // ============ TaskFormModal ============
 function TaskFormModal({ task, users, holidayMode, onSave, onClose }) {
   const isEdit = !!task?.id;
-  const today = new Date().toISOString().split('T')[0];
+  const today = toDateStr(new Date());
   const [form, setForm] = useState({
     title: task?.title || '',
     description: task?.description || '',
@@ -445,8 +451,8 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
     return m;
   }, [days]);
 
-  const todayStr = new Date().toISOString().split('T')[0];
-  const todayIndex = days.findIndex(d => d.toISOString().split('T')[0] === todayStr);
+  const todayStr = toDateStr(new Date());
+  const todayIndex = days.findIndex(d => toDateStr(d) === todayStr);
   const totalWidth = days.length * DAY_WIDTH;
 
   const handleChartScroll = useCallback((e) => {
