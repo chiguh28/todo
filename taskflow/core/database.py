@@ -40,6 +40,7 @@ def init_db():
             status TEXT DEFAULT 'todo' CHECK(status IN ('todo', 'in_progress', 'done')),
             parent_id INTEGER,
             sort_order INTEGER DEFAULT 0,
+            milestone DATE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (assignee_id) REFERENCES users(id),
@@ -87,6 +88,10 @@ def init_db():
             SET estimated_hours = MAX(1, (julianday(end_date) - julianday(start_date) + 1) * 8)
         """)
         db.commit()
+    if 'milestone' not in cols:
+        db.execute("ALTER TABLE tasks ADD COLUMN milestone DATE")
+        db.commit()
+        cols = [r[1] for r in db.execute("PRAGMA table_info(tasks)").fetchall()]
     # デフォルトユーザーの初期投入
     if db.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
         db.executemany(

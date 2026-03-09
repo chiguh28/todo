@@ -61,8 +61,8 @@ def register_routes(app):
         db = get_db()
         cursor = db.execute(
             """INSERT INTO tasks (title, description, assignee_id, start_date, estimated_hours,
-                                  progress, priority, status, parent_id, sort_order)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                  progress, priority, status, parent_id, sort_order, milestone)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data['title'],
                 data.get('description', ''),
@@ -74,6 +74,7 @@ def register_routes(app):
                 data.get('status', 'todo'),
                 data.get('parent_id'),
                 data.get('sort_order', 0),
+                data.get('milestone'),
             ),
         )
         db.commit()

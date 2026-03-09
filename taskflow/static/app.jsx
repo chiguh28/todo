@@ -129,10 +129,66 @@ const calcEndDate = (startDate, estimatedHours, holidayMode) => {
   return toDateStr(d);
 };
 
-const enrichTasks = (tasks, holidayMode) => tasks.map(t => ({
-  ...t,
-  end_date: calcEndDate(t.start_date, t.estimated_hours, holidayMode),
-}));
+// 担当者ごとにタスクの日程が被って1日8hを超える場合、次の稼働日にずらす
+const shiftOverlappingTasks = (tasks, holidayMode) => {
+  const result = tasks.map(t => ({ ...t }));
+  // 担当者ごとにグルーピング
+  const byAssignee = {};
+  const unassigned = [];
+  result.forEach((t, idx) => {
+    if (t.assignee_id) {
+      (byAssignee[t.assignee_id] = byAssignee[t.assignee_id] || []).push(idx);
+    } else {
+      unassigned.push(idx);
+    }
+  });
+
+  for (const indices of Object.values(byAssignee)) {
+    // start_date → sort_order → id 順にソート
+    indices.sort((a, b) => {
+      const ta = result[a], tb = result[b];
+      const cmp = (ta.start_date || '').localeCompare(tb.start_date || '');
+      if (cmp !== 0) return cmp;
+      if (ta.sort_order !== tb.sort_order) return ta.sort_order - tb.sort_order;
+      return ta.id - tb.id;
+    });
+    // nextAvailable: この担当者の次に空いている稼働日
+    let nextAvailable = null;
+    for (const idx of indices) {
+      const t = result[idx];
+      if (!t.start_date) continue;
+      if (nextAvailable && t.start_date < nextAvailable) {
+        t.shifted_start_date = nextAvailable;
+      } else {
+        t.shifted_start_date = t.start_date;
+      }
+      const endDate = calcEndDate(t.shifted_start_date, t.estimated_hours, holidayMode);
+      t.end_date = endDate;
+      // 次の稼働日を計算
+      const d = new Date(endDate + 'T00:00:00');
+      d.setDate(d.getDate() + 1);
+      while (isHoliday(toDateStr(d), holidayMode)) d.setDate(d.getDate() + 1);
+      nextAvailable = toDateStr(d);
+    }
+  }
+
+  // 未割当タスクは通常通り
+  for (const idx of unassigned) {
+    const t = result[idx];
+    t.end_date = calcEndDate(t.start_date, t.estimated_hours, holidayMode);
+    t.shifted_start_date = t.start_date;
+  }
+
+  return result;
+};
+
+const enrichTasks = (tasks, holidayMode) => {
+  const shifted = shiftOverlappingTasks(tasks, holidayMode);
+  return shifted.map(t => ({
+    ...t,
+    end_date: t.end_date || calcEndDate(t.shifted_start_date || t.start_date, t.estimated_hours, holidayMode),
+  }));
+};
 
 const getScheduleStatus = (task) => {
   if (task.status === 'done') return 'done';
@@ -165,6 +221,7 @@ function TaskFormModal({ task, users, holidayMode, onSave, onClose }) {
     progress: task?.progress || 0,
     priority: task?.priority || 'medium',
     status: task?.status || 'todo',
+    milestone: task?.milestone || '',
   });
 
   const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
@@ -179,7 +236,7 @@ function TaskFormModal({ task, users, holidayMode, onSave, onClose }) {
     if (!form.title.trim()) return alert('タイトルを入力してください');
     if (!form.start_date) return alert('開始日を入力してください');
     if (!form.estimated_hours || form.estimated_hours <= 0) return alert('工数を入力してください');
-    onSave({ ...form, assignee_id: form.assignee_id || null });
+    onSave({ ...form, assignee_id: form.assignee_id || null, milestone: form.milestone || null });
   };
 
   return (
@@ -239,6 +296,17 @@ function TaskFormModal({ task, users, holidayMode, onSave, onClose }) {
         <div className="form-hint">
           {previewDays}営業日（{formatDate(form.start_date)}〜{formatDate(previewEndDate)}）
           ※1日={HOURS_PER_DAY}時間
+        </div>
+        <div className="form-group">
+          <label>マイルストーン</label>
+          <input type="date" value={form.milestone} onChange={e => set('milestone', e.target.value)} />
+          {form.milestone && (
+            <div className="form-hint" style={{ marginTop: 4 }}>
+              🚩 {formatDate(form.milestone)}
+              <button className="btn btn-ghost btn-sm" style={{ marginLeft: 8, padding: '0 6px' }}
+                      onClick={() => set('milestone', '')}>クリア</button>
+            </div>
+          )}
         </div>
         <div className="form-group">
           <label>進捗率: {form.progress}%</label>
@@ -345,6 +413,7 @@ function TaskListView({ tasks, users, onEdit, onDelete }) {
             <th style={{width:70}}>ステータス</th>
             <th style={{width:130}}>期間</th>
             <th style={{width:130}}>進捗</th>
+            <th style={{width:100}}>マイルストーン</th>
             {/* 拡張列ヘッダー */}
             {TaskFlow.columns.map((col, i) => (
               <th key={`ext-h-${i}`} style={{width: col.width || 80}}>{col.header}</th>
@@ -370,9 +439,12 @@ function TaskListView({ tasks, users, onEdit, onDelete }) {
               <td>
                 {(() => {
                   const s = getScheduleStatus(t);
+                  const displayStart = t.shifted_start_date || t.start_date;
+                  const isShifted = t.shifted_start_date && t.shifted_start_date !== t.start_date;
                   return (
                     <div className={`schedule-cell schedule-${s}`}>
-                      <span className="schedule-date">{formatDate(t.start_date)}〜{formatDate(t.end_date)}</span>
+                      {isShifted && <span className="schedule-badge" style={{ background:'var(--warning-dim)', color:'var(--warning)' }} title={`元: ${formatDate(t.start_date)}`}>⇢ずらし</span>}
+                      <span className="schedule-date">{formatDate(displayStart)}〜{formatDate(t.end_date)}</span>
                       <span className="schedule-hours">{t.estimated_hours}h</span>
                       {SCHEDULE_BADGES[s] && (
                         <span className={`schedule-badge schedule-badge-${s}`}>{SCHEDULE_BADGES[s]}</span>
@@ -387,6 +459,13 @@ function TaskListView({ tasks, users, onEdit, onDelete }) {
                        style={{ width: `${t.progress}%`, background: getProgressColor(t) }} />
                 </span>
                 <span style={{ fontSize: 12, fontFamily: 'var(--mono)', color: getProgressColor(t) }}>{t.progress}%</span>
+              </td>
+              <td>
+                {t.milestone ? (
+                  <span className={`milestone-badge ${t.end_date > t.milestone ? 'milestone-overdue' : ''}`}>
+                    🚩 {formatDate(t.milestone)}
+                  </span>
+                ) : <span style={{ color:'var(--text-muted)' }}>—</span>}
               </td>
               {/* 拡張列セル */}
               {TaskFlow.columns.map((col, ci) => (
@@ -426,7 +505,11 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
       const end = new Date(today);   end.setDate(end.getDate() + 30);
       return { start, end };
     }
-    const dates = tasks.flatMap(t => [new Date(t.start_date), new Date(t.end_date)]);
+    const dates = tasks.flatMap(t => [
+      new Date(t.shifted_start_date || t.start_date),
+      new Date(t.end_date),
+      ...(t.milestone ? [new Date(t.milestone)] : []),
+    ]);
     const min = new Date(Math.min(...dates));
     const max = new Date(Math.max(...dates));
     min.setDate(min.getDate() - 5);
@@ -493,14 +576,21 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
           </button>
         </div>
         <div className="gantt-sidebar-body" ref={sidebarBodyRef}>
-          {sortedTasks.map(t => (
-            <div key={t.id} className="gantt-sidebar-row" onClick={() => onEdit(t)}>
-              <span className="assignee-dot" style={{ background: t.assignee_color || '#666', flexShrink:0 }} />
-              <span className="gantt-sidebar-title">{t.title}</span>
-              <span style={{ fontSize:10, fontFamily:'var(--mono)', color:'var(--text-muted)', flexShrink:0 }}>{t.estimated_hours}h</span>
-              <span style={{ fontSize:11, fontFamily:'var(--mono)', color: getProgressColor(t), flexShrink:0 }}>{t.progress}%</span>
-            </div>
-          ))}
+          {sortedTasks.map(t => {
+            const isShifted = t.shifted_start_date && t.shifted_start_date !== t.start_date;
+            return (
+              <div key={t.id} className="gantt-sidebar-row" onClick={() => onEdit(t)}>
+                <span className="assignee-dot" style={{ background: t.assignee_color || '#666', flexShrink:0 }} />
+                <span className="gantt-sidebar-title">
+                  {isShifted && <span title="日程ずらし済" style={{ color:'var(--warning)', marginRight:2 }}>⇢</span>}
+                  {t.title}
+                </span>
+                {t.milestone && <span style={{ fontSize:10, flexShrink:0 }} title={`MS: ${formatDate(t.milestone)}`}>🚩</span>}
+                <span style={{ fontSize:10, fontFamily:'var(--mono)', color:'var(--text-muted)', flexShrink:0 }}>{t.estimated_hours}h</span>
+                <span style={{ fontSize:11, fontFamily:'var(--mono)', color: getProgressColor(t), flexShrink:0 }}>{t.progress}%</span>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -539,23 +629,41 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
           ))}
 
           {sortedTasks.map((t, rowIndex) => {
-            const startDay = daysBetween(toDateStr(dateRange.start), t.start_date);
-            const duration = daysBetween(t.start_date, t.end_date) + 1;
+            const displayStart = t.shifted_start_date || t.start_date;
+            const startDay = daysBetween(toDateStr(dateRange.start), displayStart);
+            const duration = daysBetween(displayStart, t.end_date) + 1;
             const left = startDay * DAY_WIDTH;
             const width = duration * DAY_WIDTH;
             const barColor = t.assignee_color || '#666';
             const isOverdue = getScheduleStatus(t) === 'overdue';
+            const isShifted = t.shifted_start_date && t.shifted_start_date !== t.start_date;
+            // マイルストーン位置
+            const milestoneDay = t.milestone ? daysBetween(toDateStr(dateRange.start), t.milestone) : null;
+            const milestoneOverdue = t.milestone && t.end_date > t.milestone;
             return (
-              <div key={t.id} className="gantt-bar-wrapper"
-                   style={{ top: rowIndex * 40, left, width }}
-                   onClick={(e) => handleBarClick(e, t)}>
-                <div className={`gantt-bar-schedule ${isOverdue ? 'gantt-bar-overdue' : ''}`}
-                     style={{ background: barColor + '20', border: isOverdue ? '2px solid var(--danger)' : `2px solid ${barColor}` }}>
-                  <div className="gantt-bar-label">{width > 80 ? t.title : ''}</div>
+              <React.Fragment key={t.id}>
+                <div className={`gantt-bar-wrapper ${isShifted ? 'gantt-bar-shifted' : ''}`}
+                     style={{ top: rowIndex * 40, left, width }}
+                     onClick={(e) => handleBarClick(e, t)}
+                     title={isShifted ? `元の開始日: ${formatDate(t.start_date)} → ずらし後: ${formatDate(displayStart)}` : ''}>
+                  <div className={`gantt-bar-schedule ${isOverdue ? 'gantt-bar-overdue' : ''}`}
+                       style={{ background: barColor + '20', border: isOverdue ? '2px solid var(--danger)' : `2px solid ${barColor}` }}>
+                    <div className="gantt-bar-label">
+                      {isShifted && <span className="gantt-shift-icon" title="日程ずらし済">⇢ </span>}
+                      {width > 80 ? t.title : ''}
+                    </div>
+                  </div>
+                  <div className="gantt-bar-actual"
+                       style={{ width: `${t.progress}%`, background: getProgressColor(t) }} />
                 </div>
-                <div className="gantt-bar-actual"
-                     style={{ width: `${t.progress}%`, background: getProgressColor(t) }} />
-              </div>
+                {milestoneDay !== null && (
+                  <div className={`gantt-milestone-marker ${milestoneOverdue ? 'gantt-milestone-overdue' : ''}`}
+                       style={{ top: rowIndex * 40, left: milestoneDay * DAY_WIDTH + DAY_WIDTH / 2 - 6 }}
+                       title={`マイルストーン: ${formatDate(t.milestone)}${milestoneOverdue ? '（超過）' : ''}`}>
+                    🚩
+                  </div>
+                )}
+              </React.Fragment>
             );
           })}
 
