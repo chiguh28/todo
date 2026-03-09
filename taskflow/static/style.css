@@ -532,6 +532,54 @@ label {
 
 .progress-popover input[type=range] { width: 160px; accent-color: var(--accent); }
 
+/* ==================== Milestone ==================== */
+.milestone-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 11px;
+  font-family: var(--mono);
+  color: var(--text-secondary);
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+}
+.milestone-overdue {
+  background: var(--danger-dim);
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* ==================== Gantt Milestone Marker ==================== */
+.gantt-milestone-marker {
+  position: absolute;
+  font-size: 12px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  z-index: 6;
+  pointer-events: auto;
+  cursor: default;
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,0.2));
+}
+.gantt-milestone-overdue {
+  filter: drop-shadow(0 1px 4px rgba(224,78,78,0.5));
+  animation: milestonePulse 2s ease-in-out infinite;
+}
+@keyframes milestonePulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+}
+
+/* ==================== Shifted task indicator ==================== */
+.gantt-bar-shifted .gantt-bar-schedule {
+  border-style: dashed !important;
+}
+.gantt-shift-icon {
+  color: var(--warning);
+  font-weight: 700;
+}
+
 .progress-popover-value {
   text-align: center;
   font-size: 14px;
