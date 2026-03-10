@@ -9,4 +9,5 @@ TASK_SELECT = """
 TASK_FIELDS = [
     'title', 'description', 'assignee_id', 'start_date', 'estimated_hours',
     'progress', 'priority', 'status', 'parent_id', 'sort_order', 'milestone',
+    'category',
 ]
