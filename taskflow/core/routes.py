@@ -61,8 +61,8 @@ def register_routes(app):
         db = get_db()
         cursor = db.execute(
             """INSERT INTO tasks (title, description, assignee_id, start_date, estimated_hours,
-                                  progress, priority, status, parent_id, sort_order, milestone)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                  progress, priority, status, parent_id, sort_order, milestone, category)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 data['title'],
                 data.get('description', ''),
@@ -75,6 +75,7 @@ def register_routes(app):
                 data.get('parent_id'),
                 data.get('sort_order', 0),
                 data.get('milestone'),
+                data.get('category', ''),
             ),
         )
         db.commit()
@@ -98,10 +99,18 @@ def register_routes(app):
         task = db.execute(TASK_SELECT + " WHERE t.id = ?", (task_id,)).fetchone()
         return jsonify(dict(task))
 
+    @app.route('/api/categories', methods=['GET'])
+    def get_categories():
+        db = get_db()
+        rows = db.execute(
+            "SELECT DISTINCT category FROM tasks WHERE category != '' AND category IS NOT NULL ORDER BY category"
+        ).fetchall()
+        return jsonify([r['category'] for r in rows])
+
     @app.route('/api/tasks/<int:task_id>', methods=['DELETE'])
     def delete_task(task_id):
         db = get_db()
-        db.execute("UPDATE tasks SET parent_id = NULL WHERE parent_id = ?", (task_id,))
+        db.execute("DELETE FROM tasks WHERE parent_id = ?", (task_id,))
         db.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
         db.commit()
         return jsonify({'status': 'ok'})

@@ -92,6 +92,10 @@ def init_db():
         db.execute("ALTER TABLE tasks ADD COLUMN milestone DATE")
         db.commit()
         cols = [r[1] for r in db.execute("PRAGMA table_info(tasks)").fetchall()]
+    if 'category' not in cols:
+        db.execute("ALTER TABLE tasks ADD COLUMN category TEXT DEFAULT ''")
+        db.commit()
+        cols = [r[1] for r in db.execute("PRAGMA table_info(tasks)").fetchall()]
     # デフォルトユーザーの初期投入
     if db.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
         db.executemany(

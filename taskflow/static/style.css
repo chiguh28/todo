@@ -588,3 +588,56 @@ label {
   color: var(--accent);
   margin-bottom: 6px;
 }
+
+/* ==================== Category ==================== */
+.category-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+/* ==================== Subtask ==================== */
+.subtask-row td {
+  background: var(--bg-primary) !important;
+}
+.subtask-row:hover td {
+  background: var(--bg-hover) !important;
+}
+
+/* ==================== Gantt Category / Subtask ==================== */
+.gantt-category-header {
+  background: var(--bg-tertiary);
+  cursor: default;
+  font-weight: 600;
+  font-size: 12px;
+  border-bottom: 2px solid var(--border);
+}
+.gantt-category-header:hover {
+  background: var(--bg-tertiary);
+}
+
+.gantt-subtask-row {
+  padding-left: 24px;
+  font-size: 12px;
+}
+
+.gantt-row-category {
+  background: var(--bg-tertiary);
+}
+
+.gantt-row-subtask {
+  background: rgba(0,0,0,0.01);
+}
+
+.gantt-category-row-label {
+  height: 40px;
+  background: var(--bg-tertiary);
+}
+
+.gantt-bar-subtask .gantt-bar-schedule {
+  opacity: 0.8;
+}

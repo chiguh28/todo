@@ -209,8 +209,9 @@ const getProgressColor = (task) => {
 };
 
 // ============ TaskFormModal ============
-function TaskFormModal({ task, users, holidayMode, onSave, onClose }) {
+function TaskFormModal({ task, users, holidayMode, categories, onSave, onClose }) {
   const isEdit = !!task?.id;
+  const isSubtask = !!task?.parent_id && !isEdit;
   const today = toDateStr(new Date());
   const [form, setForm] = useState({
     title: task?.title || '',
@@ -222,7 +223,9 @@ function TaskFormModal({ task, users, holidayMode, onSave, onClose }) {
     priority: task?.priority || 'medium',
     status: task?.status || 'todo',
     milestone: task?.milestone || '',
+    category: task?.category || '',
   });
+  const [newCategory, setNewCategory] = useState('');
 
   const set = (k, v) => setForm(prev => ({ ...prev, [k]: v }));
 
@@ -239,11 +242,23 @@ function TaskFormModal({ task, users, holidayMode, onSave, onClose }) {
     onSave({ ...form, assignee_id: form.assignee_id || null, milestone: form.milestone || null });
   };
 
+  const handleCategoryChange = (value) => {
+    if (value === '__new__') {
+      setNewCategory('');
+      set('category', '');
+    } else {
+      set('category', value);
+      setNewCategory('');
+    }
+  };
+
+  const showNewCategoryInput = form.category === '' && newCategory !== null;
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <div className="modal-title">{isEdit ? 'タスク編集' : '新規タスク'}</div>
+          <div className="modal-title">{isEdit ? 'タスク編集' : isSubtask ? '新規サブタスク' : '新規タスク'}</div>
           <button className="btn btn-ghost btn-icon" onClick={onClose}>✕</button>
         </div>
 
@@ -281,6 +296,24 @@ function TaskFormModal({ task, users, holidayMode, onSave, onClose }) {
               <option value="done">完了</option>
             </select>
           </div>
+        </div>
+        <div className="form-group">
+          <label>カテゴリ</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <select value={categories.includes(form.category) ? form.category : (form.category ? '__new__' : '')}
+                    onChange={e => handleCategoryChange(e.target.value)}
+                    style={{ flex: 1 }}>
+              <option value="">なし</option>
+              {categories.map(c => <option key={c} value={c}>{c}</option>)}
+              <option value="__new__">＋ 新規カテゴリ...</option>
+            </select>
+            {(form.category === '' && newCategory === '') ? null : null}
+          </div>
+          {(!categories.includes(form.category) && (form.category !== '' || newCategory !== null)) && (
+            <input style={{ marginTop: 6 }} value={form.category}
+                   onChange={e => set('category', e.target.value)}
+                   placeholder="新しいカテゴリ名を入力" />
+          )}
         </div>
         <div className="form-row">
           <div className="form-group">
@@ -380,10 +413,31 @@ function UserManagerModal({ users, onClose, onRefresh }) {
 }
 
 // ============ TaskListView ============
-function TaskListView({ tasks, users, onEdit, onDelete }) {
-  const totalTasks = tasks.length;
-  const doneTasks = tasks.filter(t => t.status === 'done').length;
-  const avgProgress = totalTasks ? Math.round(tasks.reduce((s, t) => s + t.progress, 0) / totalTasks) : 0;
+function TaskListView({ tasks, users, onEdit, onDelete, onAddSubtask }) {
+  // 親タスクだけカウント
+  const parentTasks = tasks.filter(t => !t.parent_id);
+  const totalTasks = parentTasks.length;
+  const doneTasks = parentTasks.filter(t => t.status === 'done').length;
+  const avgProgress = totalTasks ? Math.round(parentTasks.reduce((s, t) => s + t.progress, 0) / totalTasks) : 0;
+
+  // 親子構造を構築
+  const buildTree = (taskList) => {
+    const parents = taskList.filter(t => !t.parent_id);
+    const childMap = {};
+    taskList.filter(t => t.parent_id).forEach(t => {
+      (childMap[t.parent_id] = childMap[t.parent_id] || []).push(t);
+    });
+    const result = [];
+    parents.forEach(p => {
+      result.push(p);
+      if (childMap[p.id]) {
+        childMap[p.id].forEach(c => result.push({ ...c, _isSubtask: true }));
+      }
+    });
+    return result;
+  };
+
+  const treeList = useMemo(() => buildTree(tasks), [tasks]);
 
   if (totalTasks === 0) {
     return (
@@ -393,6 +447,8 @@ function TaskListView({ tasks, users, onEdit, onDelete }) {
       </div>
     );
   }
+
+  let rowNum = 0;
 
   return (
     <div>
@@ -408,6 +464,7 @@ function TaskListView({ tasks, users, onEdit, onDelete }) {
           <tr>
             <th style={{width:30}}></th>
             <th>タスク名</th>
+            <th style={{width:80}}>カテゴリ</th>
             <th style={{width:80}}>担当</th>
             <th style={{width:60}}>優先度</th>
             <th style={{width:70}}>ステータス</th>
@@ -418,67 +475,84 @@ function TaskListView({ tasks, users, onEdit, onDelete }) {
             {TaskFlow.columns.map((col, i) => (
               <th key={`ext-h-${i}`} style={{width: col.width || 80}}>{col.header}</th>
             ))}
-            <th style={{width:80}}></th>
+            <th style={{width:100}}></th>
           </tr>
         </thead>
         <tbody>
-          {tasks.map((t, i) => (
-            <tr key={t.id}>
-              <td style={{ color: 'var(--text-muted)', fontSize: 11, fontFamily: 'var(--mono)' }}>{i+1}</td>
-              <td className="task-title-cell" onClick={() => onEdit(t)}>{t.title}</td>
-              <td>
-                {t.assignee_name ? (
-                  <span className="assignee-chip">
-                    <span className="assignee-dot" style={{ background: t.assignee_color }} />
-                    {t.assignee_name}
+          {treeList.map((t) => {
+            if (!t._isSubtask) rowNum++;
+            return (
+              <tr key={t.id} className={t._isSubtask ? 'subtask-row' : ''}>
+                <td style={{ color: 'var(--text-muted)', fontSize: 11, fontFamily: 'var(--mono)' }}>
+                  {t._isSubtask ? '' : rowNum}
+                </td>
+                <td className="task-title-cell" onClick={() => onEdit(t)}
+                    style={t._isSubtask ? { paddingLeft: 32 } : {}}>
+                  {t._isSubtask && <span style={{ color: 'var(--text-muted)', marginRight: 4 }}>└</span>}
+                  {t.title}
+                </td>
+                <td>
+                  {t.category ? (
+                    <span className="category-badge">{t.category}</span>
+                  ) : <span style={{ color:'var(--text-muted)' }}>—</span>}
+                </td>
+                <td>
+                  {t.assignee_name ? (
+                    <span className="assignee-chip">
+                      <span className="assignee-dot" style={{ background: t.assignee_color }} />
+                      {t.assignee_name}
+                    </span>
+                  ) : <span style={{ color:'var(--text-muted)' }}>—</span>}
+                </td>
+                <td><span className={`priority-badge priority-${t.priority}`}>{PRIORITY_LABELS[t.priority]}</span></td>
+                <td><span className={`status-badge status-${t.status}`}>{STATUS_LABELS[t.status]}</span></td>
+                <td>
+                  {(() => {
+                    const s = getScheduleStatus(t);
+                    const displayStart = t.shifted_start_date || t.start_date;
+                    const isShifted = t.shifted_start_date && t.shifted_start_date !== t.start_date;
+                    return (
+                      <div className={`schedule-cell schedule-${s}`}>
+                        {isShifted && <span className="schedule-badge" style={{ background:'var(--warning-dim)', color:'var(--warning)' }} title={`元: ${formatDate(t.start_date)}`}>⇢ずらし</span>}
+                        <span className="schedule-date">{formatDate(displayStart)}〜{formatDate(t.end_date)}</span>
+                        <span className="schedule-hours">{t.estimated_hours}h</span>
+                        {SCHEDULE_BADGES[s] && (
+                          <span className={`schedule-badge schedule-badge-${s}`}>{SCHEDULE_BADGES[s]}</span>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </td>
+                <td>
+                  <span className="progress-bar-mini">
+                    <div className="progress-bar-mini-fill"
+                         style={{ width: `${t.progress}%`, background: getProgressColor(t) }} />
                   </span>
-                ) : <span style={{ color:'var(--text-muted)' }}>—</span>}
-              </td>
-              <td><span className={`priority-badge priority-${t.priority}`}>{PRIORITY_LABELS[t.priority]}</span></td>
-              <td><span className={`status-badge status-${t.status}`}>{STATUS_LABELS[t.status]}</span></td>
-              <td>
-                {(() => {
-                  const s = getScheduleStatus(t);
-                  const displayStart = t.shifted_start_date || t.start_date;
-                  const isShifted = t.shifted_start_date && t.shifted_start_date !== t.start_date;
-                  return (
-                    <div className={`schedule-cell schedule-${s}`}>
-                      {isShifted && <span className="schedule-badge" style={{ background:'var(--warning-dim)', color:'var(--warning)' }} title={`元: ${formatDate(t.start_date)}`}>⇢ずらし</span>}
-                      <span className="schedule-date">{formatDate(displayStart)}〜{formatDate(t.end_date)}</span>
-                      <span className="schedule-hours">{t.estimated_hours}h</span>
-                      {SCHEDULE_BADGES[s] && (
-                        <span className={`schedule-badge schedule-badge-${s}`}>{SCHEDULE_BADGES[s]}</span>
-                      )}
-                    </div>
-                  );
-                })()}
-              </td>
-              <td>
-                <span className="progress-bar-mini">
-                  <div className="progress-bar-mini-fill"
-                       style={{ width: `${t.progress}%`, background: getProgressColor(t) }} />
-                </span>
-                <span style={{ fontSize: 12, fontFamily: 'var(--mono)', color: getProgressColor(t) }}>{t.progress}%</span>
-              </td>
-              <td>
-                {t.milestone ? (
-                  <span className={`milestone-badge ${t.end_date > t.milestone ? 'milestone-overdue' : ''}`}>
-                    🚩 {formatDate(t.milestone)}
-                  </span>
-                ) : <span style={{ color:'var(--text-muted)' }}>—</span>}
-              </td>
-              {/* 拡張列セル */}
-              {TaskFlow.columns.map((col, ci) => (
-                <td key={`ext-c-${ci}`}>{col.render(t)}</td>
-              ))}
-              <td>
-                <div className="action-btns">
-                  <button className="btn btn-ghost btn-sm" onClick={() => onEdit(t)} title="編集">✏️</button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => onDelete(t.id)} title="削除">🗑️</button>
-                </div>
-              </td>
-            </tr>
-          ))}
+                  <span style={{ fontSize: 12, fontFamily: 'var(--mono)', color: getProgressColor(t) }}>{t.progress}%</span>
+                </td>
+                <td>
+                  {t.milestone ? (
+                    <span className={`milestone-badge ${t.end_date > t.milestone ? 'milestone-overdue' : ''}`}>
+                      🚩 {formatDate(t.milestone)}
+                    </span>
+                  ) : <span style={{ color:'var(--text-muted)' }}>—</span>}
+                </td>
+                {/* 拡張列セル */}
+                {TaskFlow.columns.map((col, ci) => (
+                  <td key={`ext-c-${ci}`}>{col.render(t)}</td>
+                ))}
+                <td>
+                  <div className="action-btns">
+                    {!t._isSubtask && (
+                      <button className="btn btn-ghost btn-sm" onClick={() => onAddSubtask(t)} title="サブタスク追加">＋</button>
+                    )}
+                    <button className="btn btn-ghost btn-sm" onClick={() => onEdit(t)} title="編集">✏️</button>
+                    <button className="btn btn-ghost btn-sm" onClick={() => onDelete(t.id)} title="削除">🗑️</button>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -491,12 +565,68 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
   const sidebarBodyRef = useRef(null);
   const [popover, setPopover] = useState(null);
   const [sortByDate, setSortByDate] = useState(false);
+  const [groupByCategory, setGroupByCategory] = useState(false);
   const DAY_WIDTH = 36;
 
+  // 親子構造 + カテゴリグループ対応
   const sortedTasks = useMemo(() => {
-    if (!sortByDate) return tasks;
-    return [...tasks].sort((a, b) => a.start_date.localeCompare(b.start_date));
-  }, [tasks, sortByDate]);
+    // 親タスクとサブタスクを分離
+    const parents = tasks.filter(t => !t.parent_id);
+    const childMap = {};
+    tasks.filter(t => t.parent_id).forEach(t => {
+      (childMap[t.parent_id] = childMap[t.parent_id] || []).push(t);
+    });
+
+    let orderedParents = [...parents];
+    if (sortByDate) {
+      orderedParents.sort((a, b) => a.start_date.localeCompare(b.start_date));
+    }
+
+    if (groupByCategory) {
+      // カテゴリごとにグループ化
+      const catMap = {};
+      const noCategory = [];
+      orderedParents.forEach(t => {
+        const cat = t.category || '';
+        if (cat) {
+          (catMap[cat] = catMap[cat] || []).push(t);
+        } else {
+          noCategory.push(t);
+        }
+      });
+      const catNames = Object.keys(catMap).sort();
+      const result = [];
+      catNames.forEach(cat => {
+        result.push({ _isCategoryHeader: true, _categoryName: cat, id: `cat-${cat}` });
+        catMap[cat].forEach(p => {
+          result.push(p);
+          if (childMap[p.id]) {
+            childMap[p.id].forEach(c => result.push({ ...c, _isSubtask: true }));
+          }
+        });
+      });
+      if (noCategory.length > 0) {
+        result.push({ _isCategoryHeader: true, _categoryName: '未分類', id: 'cat-none' });
+        noCategory.forEach(p => {
+          result.push(p);
+          if (childMap[p.id]) {
+            childMap[p.id].forEach(c => result.push({ ...c, _isSubtask: true }));
+          }
+        });
+      }
+      return result;
+    }
+
+    // フラットに親→子の順で並べる
+    const result = [];
+    orderedParents.forEach(p => {
+      result.push(p);
+      if (childMap[p.id]) {
+        childMap[p.id].forEach(c => result.push({ ...c, _isSubtask: true }));
+      }
+    });
+    return result;
+  }, [tasks, sortByDate, groupByCategory]);
 
   const dateRange = useMemo(() => {
     if (tasks.length === 0) {
@@ -570,16 +700,31 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
       <div className="gantt-sidebar">
         <div className="gantt-sidebar-header">
           <span>タスク一覧</span>
-          <button className={`btn btn-ghost btn-sm gantt-sort-btn ${sortByDate ? 'active' : ''}`}
-                  onClick={() => setSortByDate(v => !v)} title="開始日順にソート">
-            📅 開始日順
-          </button>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button className={`btn btn-ghost btn-sm gantt-sort-btn ${groupByCategory ? 'active' : ''}`}
+                    onClick={() => setGroupByCategory(v => !v)} title="カテゴリ別に表示">
+              🏷️ カテゴリ別
+            </button>
+            <button className={`btn btn-ghost btn-sm gantt-sort-btn ${sortByDate ? 'active' : ''}`}
+                    onClick={() => setSortByDate(v => !v)} title="開始日順にソート">
+              📅 開始日順
+            </button>
+          </div>
         </div>
         <div className="gantt-sidebar-body" ref={sidebarBodyRef}>
           {sortedTasks.map(t => {
+            if (t._isCategoryHeader) {
+              return (
+                <div key={t.id} className="gantt-sidebar-row gantt-category-header">
+                  <span className="category-badge">{t._categoryName}</span>
+                </div>
+              );
+            }
             const isShifted = t.shifted_start_date && t.shifted_start_date !== t.start_date;
             return (
-              <div key={t.id} className="gantt-sidebar-row" onClick={() => onEdit(t)}>
+              <div key={t.id} className={`gantt-sidebar-row ${t._isSubtask ? 'gantt-subtask-row' : ''}`}
+                   onClick={() => onEdit(t)}>
+                {t._isSubtask && <span style={{ color: 'var(--text-muted)', fontSize: 10, flexShrink: 0 }}>└</span>}
                 <span className="assignee-dot" style={{ background: t.assignee_color || '#666', flexShrink:0 }} />
                 <span className="gantt-sidebar-title">
                   {isShifted && <span title="日程ずらし済" style={{ color:'var(--warning)', marginRight:2 }}>⇢</span>}
@@ -619,8 +764,10 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
 
         <div className="gantt-body" style={{ width: totalWidth, position: 'relative' }}>
           {sortedTasks.map(t => (
-            <div key={t.id} className="gantt-row">
-              {days.map((d, i) => (
+            <div key={t.id} className={`gantt-row ${t._isCategoryHeader ? 'gantt-row-category' : ''} ${t._isSubtask ? 'gantt-row-subtask' : ''}`}>
+              {t._isCategoryHeader ? (
+                <div className="gantt-category-row-label" style={{ width: totalWidth }} />
+              ) : days.map((d, i) => (
                 <div key={i}
                      className={`gantt-cell ${isHoliday(toDateStr(d), holidayMode) ? 'weekend' : ''}`}
                      style={{ width: DAY_WIDTH, minWidth: DAY_WIDTH }} />
@@ -629,7 +776,9 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
           ))}
 
           {sortedTasks.map((t, rowIndex) => {
+            if (t._isCategoryHeader) return null;
             const displayStart = t.shifted_start_date || t.start_date;
+            if (!displayStart || !t.end_date) return null;
             const startDay = daysBetween(toDateStr(dateRange.start), displayStart);
             const duration = daysBetween(displayStart, t.end_date) + 1;
             const left = startDay * DAY_WIDTH;
@@ -637,24 +786,29 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
             const barColor = t.assignee_color || '#666';
             const isOverdue = getScheduleStatus(t) === 'overdue';
             const isShifted = t.shifted_start_date && t.shifted_start_date !== t.start_date;
+            const isSubtask = t._isSubtask;
             // マイルストーン位置
             const milestoneDay = t.milestone ? daysBetween(toDateStr(dateRange.start), t.milestone) : null;
             const milestoneOverdue = t.milestone && t.end_date > t.milestone;
             return (
               <React.Fragment key={t.id}>
-                <div className={`gantt-bar-wrapper ${isShifted ? 'gantt-bar-shifted' : ''}`}
+                <div className={`gantt-bar-wrapper ${isShifted ? 'gantt-bar-shifted' : ''} ${isSubtask ? 'gantt-bar-subtask' : ''}`}
                      style={{ top: rowIndex * 40, left, width }}
                      onClick={(e) => handleBarClick(e, t)}
                      title={isShifted ? `元の開始日: ${formatDate(t.start_date)} → ずらし後: ${formatDate(displayStart)}` : ''}>
                   <div className={`gantt-bar-schedule ${isOverdue ? 'gantt-bar-overdue' : ''}`}
-                       style={{ background: barColor + '20', border: isOverdue ? '2px solid var(--danger)' : `2px solid ${barColor}` }}>
-                    <div className="gantt-bar-label">
+                       style={{
+                         background: barColor + (isSubtask ? '10' : '20'),
+                         border: isOverdue ? '2px solid var(--danger)' : `${isSubtask ? '1' : '2'}px solid ${barColor}`,
+                         height: isSubtask ? 14 : 18,
+                       }}>
+                    <div className="gantt-bar-label" style={isSubtask ? { fontSize: 9, lineHeight: '14px' } : {}}>
                       {isShifted && <span className="gantt-shift-icon" title="日程ずらし済">⇢ </span>}
                       {width > 80 ? t.title : ''}
                     </div>
                   </div>
                   <div className="gantt-bar-actual"
-                       style={{ width: `${t.progress}%`, background: getProgressColor(t) }} />
+                       style={{ width: `${t.progress}%`, background: getProgressColor(t), height: isSubtask ? 4 : 6 }} />
                 </div>
                 {milestoneDay !== null && (
                   <div className={`gantt-milestone-marker ${milestoneOverdue ? 'gantt-milestone-overdue' : ''}`}
@@ -699,13 +853,16 @@ function App() {
   const [view, setView] = useState('tasks');
   const [tasks, setTasks] = useState([]);
   const [users, setUsers] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [showUserManager, setShowUserManager] = useState(false);
   const [filterAssignee, setFilterAssignee] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterCategory, setFilterCategory] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [holidayMode, setHolidayMode] = useState(() => localStorage.getItem('holidayMode') || 'weekends');
+  const [subtaskParent, setSubtaskParent] = useState(null);
 
   const handleHolidayModeChange = (mode) => {
     setHolidayMode(mode);
@@ -714,42 +871,102 @@ function App() {
 
   const fetchTasks = async () => { setTasks(await api.get('/api/tasks')); };
   const fetchUsers = async () => { setUsers(await api.get('/api/users')); };
+  const fetchCategories = async () => { setCategories(await api.get('/api/categories')); };
 
-  useEffect(() => { fetchTasks(); fetchUsers(); }, []);
+  useEffect(() => { fetchTasks(); fetchUsers(); fetchCategories(); }, []);
 
   const enrichedTasks = useMemo(() => enrichTasks(tasks, holidayMode), [tasks, holidayMode]);
   const filteredTasks = useMemo(() => enrichedTasks.filter(t => {
     if (filterAssignee && String(t.assignee_id) !== filterAssignee) return false;
     if (filterStatus && t.status !== filterStatus) return false;
+    if (filterCategory) {
+      // カテゴリフィルタ: 親タスクのカテゴリで絞り込む（サブタスクも親のカテゴリに連動）
+      if (t.parent_id) {
+        const parent = enrichedTasks.find(p => p.id === t.parent_id);
+        if (!parent || parent.category !== filterCategory) return false;
+      } else if (t.category !== filterCategory) return false;
+    }
     if (searchQuery && !t.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     return true;
-  }), [enrichedTasks, filterAssignee, filterStatus, searchQuery]);
+  }), [enrichedTasks, filterAssignee, filterStatus, filterCategory, searchQuery]);
+
+  // サブタスクの進捗から親タスクの進捗を自動計算して更新
+  const updateParentProgress = async (parentId) => {
+    const subtasks = tasks.filter(t => t.parent_id === parentId);
+    if (subtasks.length === 0) return;
+    const avgProgress = Math.round(subtasks.reduce((s, t) => s + t.progress, 0) / subtasks.length);
+    const status = avgProgress >= 100 ? 'done' : avgProgress > 0 ? 'in_progress' : 'todo';
+    await api.put(`/api/tasks/${parentId}`, { progress: avgProgress, status });
+  };
 
   const handleSaveTask = async (formData) => {
     let savedTask;
     if (editingTask?.id) {
       savedTask = await api.put(`/api/tasks/${editingTask.id}`, formData);
       TaskFlow.emit('task:updated', { task: savedTask });
+      // サブタスクの進捗が変わった場合、親タスクの進捗も更新
+      if (editingTask.parent_id) {
+        await updateParentProgress(editingTask.parent_id);
+      }
     } else {
       savedTask = await api.post('/api/tasks', formData);
       TaskFlow.emit('task:created', { task: savedTask });
+      // 新規サブタスク追加時も親の進捗を更新
+      if (formData.parent_id) {
+        await updateParentProgress(formData.parent_id);
+      }
     }
     setShowTaskForm(false);
     setEditingTask(null);
+    setSubtaskParent(null);
     fetchTasks();
+    fetchCategories();
   };
 
   const handleDeleteTask = async (id) => {
-    if (!confirm('このタスクを削除しますか？')) return;
+    const task = tasks.find(t => t.id === id);
+    const isSubtask = task && task.parent_id;
+    const parentId = task ? task.parent_id : null;
+    if (!confirm(isSubtask ? 'このサブタスクを削除しますか？' : 'このタスクを削除しますか？\n（サブタスクも全て削除されます）')) return;
     await api.del(`/api/tasks/${id}`);
     TaskFlow.emit('task:deleted', { taskId: id });
-    fetchTasks();
+    // サブタスク削除時は親の進捗を再計算
+    if (parentId) {
+      // fetchTasksの後にupdateする必要があるため、少し遅延
+      await fetchTasks();
+      const remainingSubtasks = tasks.filter(t => t.parent_id === parentId && t.id !== id);
+      if (remainingSubtasks.length > 0) {
+        const avgProgress = Math.round(remainingSubtasks.reduce((s, t) => s + t.progress, 0) / remainingSubtasks.length);
+        const status = avgProgress >= 100 ? 'done' : avgProgress > 0 ? 'in_progress' : 'todo';
+        await api.put(`/api/tasks/${parentId}`, { progress: avgProgress, status });
+      }
+      fetchTasks();
+    } else {
+      fetchTasks();
+    }
+    fetchCategories();
   };
 
-  const handleEditTask = (task) => { setEditingTask(task); setShowTaskForm(true); };
+  const handleEditTask = (task) => { setEditingTask(task); setSubtaskParent(null); setShowTaskForm(true); };
+
+  const handleAddSubtask = (parentTask) => {
+    setSubtaskParent(parentTask);
+    setEditingTask(null);
+    setShowTaskForm(true);
+  };
 
   const handleUpdateProgress = async (taskId, progress) => {
+    const task = tasks.find(t => t.id === taskId);
     await api.put(`/api/tasks/${taskId}`, { progress, status: progress >= 100 ? 'done' : progress > 0 ? 'in_progress' : 'todo' });
+    // サブタスクの場合、親タスクの進捗も更新
+    if (task && task.parent_id) {
+      const parentId = task.parent_id;
+      const subtasks = tasks.filter(t => t.parent_id === parentId);
+      const updatedSubtasks = subtasks.map(t => t.id === taskId ? { ...t, progress } : t);
+      const avgProgress = Math.round(updatedSubtasks.reduce((s, t) => s + t.progress, 0) / updatedSubtasks.length);
+      const status = avgProgress >= 100 ? 'done' : avgProgress > 0 ? 'in_progress' : 'todo';
+      await api.put(`/api/tasks/${parentId}`, { progress: avgProgress, status });
+    }
     fetchTasks();
   };
 
@@ -793,7 +1010,7 @@ function App() {
           <button className="btn btn-secondary btn-sm" onClick={() => setShowUserManager(true)}>
             👥 メンバー
           </button>
-          <button className="btn btn-primary" onClick={() => { setEditingTask(null); setShowTaskForm(true); }}>
+          <button className="btn btn-primary" onClick={() => { setEditingTask(null); setSubtaskParent(null); setShowTaskForm(true); }}>
             ＋ 新規タスク
           </button>
         </div>
@@ -812,14 +1029,18 @@ function App() {
           <option value="in_progress">進行中</option>
           <option value="done">完了</option>
         </select>
+        <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
+          <option value="">全カテゴリ</option>
+          {categories.map(c => <option key={c} value={c}>{c}</option>)}
+        </select>
         <div className="filter-separator" />
         <select value={holidayMode} onChange={e => handleHolidayModeChange(e.target.value)}>
           <option value="weekends">休日: 土日</option>
           <option value="weekends_holidays">休日: 土日祝</option>
         </select>
-        {(filterAssignee || filterStatus || searchQuery) && (
+        {(filterAssignee || filterStatus || filterCategory || searchQuery) && (
           <button className="btn btn-ghost btn-sm"
-                  onClick={() => { setFilterAssignee(''); setFilterStatus(''); setSearchQuery(''); }}>
+                  onClick={() => { setFilterAssignee(''); setFilterStatus(''); setFilterCategory(''); setSearchQuery(''); }}>
             ✕ クリア
           </button>
         )}
@@ -829,7 +1050,8 @@ function App() {
         {view === 'tasks' ? (
           <div className="task-list-view">
             <TaskListView tasks={filteredTasks} users={users}
-                          onEdit={handleEditTask} onDelete={handleDeleteTask} />
+                          onEdit={handleEditTask} onDelete={handleDeleteTask}
+                          onAddSubtask={handleAddSubtask} />
           </div>
         ) : view === 'gantt' ? (
           <GanttChart tasks={filteredTasks} users={users} holidayMode={holidayMode}
@@ -838,9 +1060,17 @@ function App() {
       </div>
 
       {showTaskForm && (
-        <TaskFormModal task={editingTask} users={users} holidayMode={holidayMode}
-                       onSave={handleSaveTask}
-                       onClose={() => { setShowTaskForm(false); setEditingTask(null); }} />
+        <TaskFormModal
+          task={subtaskParent ? { parent_id: subtaskParent.id, start_date: subtaskParent.start_date, category: subtaskParent.category } : editingTask}
+          users={users} holidayMode={holidayMode} categories={categories}
+          onSave={(formData) => {
+            if (subtaskParent && !editingTask?.id) {
+              handleSaveTask({ ...formData, parent_id: subtaskParent.id });
+            } else {
+              handleSaveTask(formData);
+            }
+          }}
+          onClose={() => { setShowTaskForm(false); setEditingTask(null); setSubtaskParent(null); }} />
       )}
       {showUserManager && (
         <UserManagerModal users={users}
