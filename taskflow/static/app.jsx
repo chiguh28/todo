@@ -1,4 +1,45 @@
-const { useState, useEffect, useRef, useCallback, useMemo } = React;
+const { useState, useEffect, useRef, useCallback, useMemo, createPortal } = React;
+
+// ============ 複数選択ドロップダウン ============
+function MultiSelectDropdown({ label, options, selected, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const toggle = (val) => {
+    if (selected.includes(val)) onChange(selected.filter(v => v !== val));
+    else onChange([...selected, val]);
+  };
+
+  const displayLabel = selected.length === 0 ? label : `${label} (${selected.length})`;
+
+  return (
+    <div className="multi-select-dropdown" ref={ref}>
+      <button className={`multi-select-btn ${selected.length > 0 ? 'has-selection' : ''}`}
+              onClick={() => setOpen(v => !v)}>
+        {displayLabel} <span className="multi-select-arrow">{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div className="multi-select-menu">
+          {options.map(opt => (
+            <label key={opt.value} className="multi-select-option">
+              <input type="checkbox" checked={selected.includes(opt.value)}
+                     onChange={() => toggle(opt.value)} />
+              <span>{opt.label}</span>
+            </label>
+          ))}
+          {options.length === 0 && <div className="multi-select-empty">選択肢なし</div>}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ============ 拡張機能レジストリ ============
 window.TaskFlow = (() => {
@@ -566,7 +607,35 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
   const [popover, setPopover] = useState(null);
   const [sortByDate, setSortByDate] = useState(false);
   const [groupByCategory, setGroupByCategory] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = localStorage.getItem('ganttSidebarWidth');
+    return saved ? parseInt(saved, 10) : 280;
+  });
+  const isDragging = useRef(false);
   const DAY_WIDTH = 36;
+
+  const handleResizeStart = useCallback((e) => {
+    e.preventDefault();
+    isDragging.current = true;
+    const startX = e.clientX;
+    const startWidth = sidebarWidth;
+    const onMove = (ev) => {
+      const newWidth = Math.max(150, Math.min(600, startWidth + ev.clientX - startX));
+      setSidebarWidth(newWidth);
+    };
+    const onUp = () => {
+      isDragging.current = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      setSidebarWidth(w => { localStorage.setItem('ganttSidebarWidth', w); return w; });
+    };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [sidebarWidth]);
 
   // 親子構造 + カテゴリグループ対応
   const sortedTasks = useMemo(() => {
@@ -697,7 +766,7 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
 
   return (
     <div className="gantt-container">
-      <div className="gantt-sidebar">
+      <div className="gantt-sidebar" style={{ width: sidebarWidth, minWidth: sidebarWidth }}>
         <div className="gantt-sidebar-header">
           <span>タスク一覧</span>
           <div style={{ display: 'flex', gap: 4 }}>
@@ -739,6 +808,7 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
         </div>
       </div>
 
+      <div className="gantt-resize-handle" onMouseDown={handleResizeStart} />
       <div className="gantt-chart-area" ref={chartRef} onScroll={handleChartScroll}>
         <div className="gantt-header" style={{ width: totalWidth }}>
           <div className="gantt-header-months">
@@ -857,9 +927,9 @@ function App() {
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [showUserManager, setShowUserManager] = useState(false);
-  const [filterAssignee, setFilterAssignee] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
-  const [filterCategory, setFilterCategory] = useState('');
+  const [filterAssignees, setFilterAssignees] = useState([]);
+  const [filterStatuses, setFilterStatuses] = useState([]);
+  const [filterCategories, setFilterCategories] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [holidayMode, setHolidayMode] = useState(() => localStorage.getItem('holidayMode') || 'weekends');
   const [subtaskParent, setSubtaskParent] = useState(null);
@@ -877,18 +947,18 @@ function App() {
 
   const enrichedTasks = useMemo(() => enrichTasks(tasks, holidayMode), [tasks, holidayMode]);
   const filteredTasks = useMemo(() => enrichedTasks.filter(t => {
-    if (filterAssignee && String(t.assignee_id) !== filterAssignee) return false;
-    if (filterStatus && t.status !== filterStatus) return false;
-    if (filterCategory) {
+    if (filterAssignees.length > 0 && !filterAssignees.includes(String(t.assignee_id))) return false;
+    if (filterStatuses.length > 0 && !filterStatuses.includes(t.status)) return false;
+    if (filterCategories.length > 0) {
       // カテゴリフィルタ: 親タスクのカテゴリで絞り込む（サブタスクも親のカテゴリに連動）
       if (t.parent_id) {
         const parent = enrichedTasks.find(p => p.id === t.parent_id);
-        if (!parent || parent.category !== filterCategory) return false;
-      } else if (t.category !== filterCategory) return false;
+        if (!parent || !filterCategories.includes(parent.category)) return false;
+      } else if (!filterCategories.includes(t.category)) return false;
     }
     if (searchQuery && !t.title.toLowerCase().includes(searchQuery.toLowerCase())) return false;
     return true;
-  }), [enrichedTasks, filterAssignee, filterStatus, filterCategory, searchQuery]);
+  }), [enrichedTasks, filterAssignees, filterStatuses, filterCategories, searchQuery]);
 
   // サブタスクの進捗から親タスクの進捗を自動計算して更新
   const updateParentProgress = async (parentId) => {
@@ -1019,28 +1089,23 @@ function App() {
       <div className="filter-bar">
         <input className="search-input" placeholder="🔍 タスク検索..."
                value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
-        <select value={filterAssignee} onChange={e => setFilterAssignee(e.target.value)}>
-          <option value="">全メンバー</option>
-          {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-        </select>
-        <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
-          <option value="">全ステータス</option>
-          <option value="todo">未着手</option>
-          <option value="in_progress">進行中</option>
-          <option value="done">完了</option>
-        </select>
-        <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
-          <option value="">全カテゴリ</option>
-          {categories.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
+        <MultiSelectDropdown label="全メンバー"
+          options={users.map(u => ({ value: String(u.id), label: u.name }))}
+          selected={filterAssignees} onChange={setFilterAssignees} />
+        <MultiSelectDropdown label="全ステータス"
+          options={[{ value: 'todo', label: '未着手' }, { value: 'in_progress', label: '進行中' }, { value: 'done', label: '完了' }]}
+          selected={filterStatuses} onChange={setFilterStatuses} />
+        <MultiSelectDropdown label="全カテゴリ"
+          options={categories.map(c => ({ value: c, label: c }))}
+          selected={filterCategories} onChange={setFilterCategories} />
         <div className="filter-separator" />
         <select value={holidayMode} onChange={e => handleHolidayModeChange(e.target.value)}>
           <option value="weekends">休日: 土日</option>
           <option value="weekends_holidays">休日: 土日祝</option>
         </select>
-        {(filterAssignee || filterStatus || filterCategory || searchQuery) && (
+        {(filterAssignees.length > 0 || filterStatuses.length > 0 || filterCategories.length > 0 || searchQuery) && (
           <button className="btn btn-ghost btn-sm"
-                  onClick={() => { setFilterAssignee(''); setFilterStatus(''); setFilterCategory(''); setSearchQuery(''); }}>
+                  onClick={() => { setFilterAssignees([]); setFilterStatuses([]); setFilterCategories([]); setSearchQuery(''); }}>
             ✕ クリア
           </button>
         )}
