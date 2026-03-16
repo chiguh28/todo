@@ -187,7 +187,7 @@ const shiftOverlappingTasks = (tasks, holidayMode) => {
 
   for (const indices of Object.values(byAssignee)) {
     const assigneeTasks = indices
-      .filter(idx => result[idx].start_date && result[idx].estimated_hours > 0 && result[idx].status !== 'done');
+      .filter(idx => result[idx].start_date && result[idx].estimated_hours > 0 && result[idx].status !== 'done' && !result[idx].parent_id);
 
     if (assigneeTasks.length === 0) continue;
 
