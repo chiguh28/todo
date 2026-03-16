@@ -606,8 +606,8 @@ label {
   50% { transform: scale(1.2); }
 }
 
-/* ==================== Shifted task indicator ==================== */
-.gantt-bar-shifted .gantt-bar-schedule {
+/* ==================== Extended task indicator ==================== */
+.gantt-bar-extended .gantt-bar-schedule {
   border-style: dashed !important;
 }
 .gantt-shift-icon {

@@ -170,7 +170,8 @@ const calcEndDate = (startDate, estimatedHours, holidayMode) => {
   return toDateStr(d);
 };
 
-// 担当者ごとにタスクの日程が被って1日8hを超える場合、次の稼働日にずらす
+// 担当者ごとに1日8hを超える場合、優先度の高いタスクを優先し低いタスクの期間を延長する
+const PRIORITY_ORDER = { high: 0, medium: 1, low: 2 };
 const shiftOverlappingTasks = (tasks, holidayMode) => {
   const result = tasks.map(t => ({ ...t }));
   // 担当者ごとにグルーピング
@@ -185,32 +186,75 @@ const shiftOverlappingTasks = (tasks, holidayMode) => {
   });
 
   for (const indices of Object.values(byAssignee)) {
-    // start_date → sort_order → id 順にソート
-    indices.sort((a, b) => {
-      const ta = result[a], tb = result[b];
-      const cmp = (ta.start_date || '').localeCompare(tb.start_date || '');
+    const assigneeTasks = indices
+      .filter(idx => result[idx].start_date && result[idx].estimated_hours > 0);
+
+    if (assigneeTasks.length === 0) continue;
+
+    // 優先度順 → 開始日順 → sort_order → id でソート（高優先度が先に時間を確保）
+    assigneeTasks.sort((a, b) => {
+      const pa = PRIORITY_ORDER[result[a].priority] ?? 1;
+      const pb = PRIORITY_ORDER[result[b].priority] ?? 1;
+      if (pa !== pb) return pa - pb;
+      const cmp = (result[a].start_date || '').localeCompare(result[b].start_date || '');
       if (cmp !== 0) return cmp;
-      if (ta.sort_order !== tb.sort_order) return ta.sort_order - tb.sort_order;
-      return ta.id - tb.id;
+      if (result[a].sort_order !== result[b].sort_order) return result[a].sort_order - result[b].sort_order;
+      return result[a].id - result[b].id;
     });
-    // nextAvailable: この担当者の次に空いている稼働日
-    let nextAvailable = null;
-    for (const idx of indices) {
-      const t = result[idx];
-      if (!t.start_date) continue;
-      if (nextAvailable && t.start_date < nextAvailable) {
-        t.shifted_start_date = nextAvailable;
-      } else {
-        t.shifted_start_date = t.start_date;
+
+    // 各タスクの残り時間を管理
+    const remaining = {};
+    const soloEndDate = {};
+    assigneeTasks.forEach(idx => {
+      remaining[idx] = result[idx].estimated_hours;
+      result[idx].shifted_start_date = result[idx].start_date;
+      soloEndDate[idx] = calcEndDate(result[idx].start_date, result[idx].estimated_hours, holidayMode);
+    });
+
+    // 最も早い開始日からシミュレーション
+    const earliestStart = assigneeTasks.reduce((min, idx) =>
+      !min || result[idx].start_date < min ? result[idx].start_date : min, null);
+
+    const d = new Date(earliestStart + 'T00:00:00');
+    const maxDays = 365;
+    let daysProcessed = 0;
+
+    while (daysProcessed < maxDays) {
+      const ds = toDateStr(d);
+
+      if (isHoliday(ds, holidayMode)) {
+        d.setDate(d.getDate() + 1);
+        daysProcessed++;
+        continue;
       }
-      const endDate = calcEndDate(t.shifted_start_date, t.estimated_hours, holidayMode);
-      t.end_date = endDate;
-      // 次の稼働日を計算
-      const d = new Date(endDate + 'T00:00:00');
+
+      let availableHours = HOURS_PER_DAY;
+
+      // 優先度順に時間を割り当て
+      for (const idx of assigneeTasks) {
+        if (remaining[idx] <= 0) continue;
+        if (result[idx].start_date > ds) continue; // まだ開始していない
+        if (availableHours <= 0) continue; // この日は空きなし（ただし他のタスクも確認）
+
+        const allocate = Math.min(remaining[idx], availableHours);
+        remaining[idx] -= allocate;
+        availableHours -= allocate;
+
+        // この日に割り当てがあれば終了日を更新
+        result[idx].end_date = ds;
+      }
+
+      // 全タスク完了チェック
+      if (assigneeTasks.every(idx => remaining[idx] <= 0)) break;
+
       d.setDate(d.getDate() + 1);
-      while (isHoliday(toDateStr(d), holidayMode)) d.setDate(d.getDate() + 1);
-      nextAvailable = toDateStr(d);
+      daysProcessed++;
     }
+
+    // 期間延長されたタスクにフラグを立てる
+    assigneeTasks.forEach(idx => {
+      result[idx]._isExtended = result[idx].end_date > soloEndDate[idx];
+    });
   }
 
   // 未割当タスクは通常通り
@@ -550,11 +594,11 @@ function TaskListView({ tasks, users, onEdit, onDelete, onAddSubtask }) {
                 <td>
                   {(() => {
                     const s = getScheduleStatus(t);
-                    const displayStart = t.shifted_start_date || t.start_date;
-                    const isShifted = t.shifted_start_date && t.shifted_start_date !== t.start_date;
+                    const displayStart = t.start_date;
+                    const isExtended = t._isExtended;
                     return (
                       <div className={`schedule-cell schedule-${s}`}>
-                        {isShifted && <span className="schedule-badge" style={{ background:'var(--warning-dim)', color:'var(--warning)' }} title={`元: ${formatDate(t.start_date)}`}>⇢ずらし</span>}
+                        {isExtended && <span className="schedule-badge" style={{ background:'var(--warning-dim)', color:'var(--warning)' }} title="他タスクと競合し期間延長">⏳延長</span>}
                         <span className="schedule-date">{formatDate(displayStart)}〜{formatDate(t.end_date)}</span>
                         <span className="schedule-hours">{t.estimated_hours}h</span>
                         {SCHEDULE_BADGES[s] && (
@@ -705,7 +749,7 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
       return { start, end };
     }
     const dates = tasks.flatMap(t => [
-      new Date(t.shifted_start_date || t.start_date),
+      new Date(t.start_date),
       new Date(t.end_date),
       ...(t.milestone ? [new Date(t.milestone)] : []),
     ]);
@@ -789,14 +833,13 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
                 </div>
               );
             }
-            const isShifted = t.shifted_start_date && t.shifted_start_date !== t.start_date;
             return (
               <div key={t.id} className={`gantt-sidebar-row ${t._isSubtask ? 'gantt-subtask-row' : ''}`}
                    onClick={() => onEdit(t)}>
                 {t._isSubtask && <span style={{ color: 'var(--text-muted)', fontSize: 10, flexShrink: 0 }}>└</span>}
                 <span className="assignee-dot" style={{ background: t.assignee_color || '#666', flexShrink:0 }} />
                 <span className="gantt-sidebar-title">
-                  {isShifted && <span title="日程ずらし済" style={{ color:'var(--warning)', marginRight:2 }}>⇢</span>}
+                  {t._isExtended && <span title="他タスクと競合し期間延長" style={{ color:'var(--warning)', marginRight:2 }}>⏳</span>}
                   {t.title}
                 </span>
                 {t.milestone && <span style={{ fontSize:10, flexShrink:0 }} title={`MS: ${formatDate(t.milestone)}`}>🚩</span>}
@@ -847,7 +890,7 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
 
           {sortedTasks.map((t, rowIndex) => {
             if (t._isCategoryHeader) return null;
-            const displayStart = t.shifted_start_date || t.start_date;
+            const displayStart = t.start_date;
             if (!displayStart || !t.end_date) return null;
             const startDay = daysBetween(toDateStr(dateRange.start), displayStart);
             const duration = daysBetween(displayStart, t.end_date) + 1;
@@ -855,17 +898,17 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
             const width = duration * DAY_WIDTH;
             const barColor = t.assignee_color || '#666';
             const isOverdue = getScheduleStatus(t) === 'overdue';
-            const isShifted = t.shifted_start_date && t.shifted_start_date !== t.start_date;
+            const isExtended = t._isExtended;
             const isSubtask = t._isSubtask;
             // マイルストーン位置
             const milestoneDay = t.milestone ? daysBetween(toDateStr(dateRange.start), t.milestone) : null;
             const milestoneOverdue = t.milestone && t.end_date > t.milestone;
             return (
               <React.Fragment key={t.id}>
-                <div className={`gantt-bar-wrapper ${isShifted ? 'gantt-bar-shifted' : ''} ${isSubtask ? 'gantt-bar-subtask' : ''}`}
+                <div className={`gantt-bar-wrapper ${isExtended ? 'gantt-bar-extended' : ''} ${isSubtask ? 'gantt-bar-subtask' : ''}`}
                      style={{ top: rowIndex * 40, left, width }}
                      onClick={(e) => handleBarClick(e, t)}
-                     title={isShifted ? `元の開始日: ${formatDate(t.start_date)} → ずらし後: ${formatDate(displayStart)}` : ''}>
+                     title={isExtended ? `他タスクと競合し期間延長` : ''}>
                   <div className={`gantt-bar-schedule ${isOverdue ? 'gantt-bar-overdue' : ''}`}
                        style={{
                          background: barColor + (isSubtask ? '10' : '20'),
@@ -873,7 +916,7 @@ function GanttChart({ tasks, users, holidayMode, onUpdateProgress, onEdit }) {
                          height: isSubtask ? 14 : 18,
                        }}>
                     <div className="gantt-bar-label" style={isSubtask ? { fontSize: 9, lineHeight: '14px' } : {}}>
-                      {isShifted && <span className="gantt-shift-icon" title="日程ずらし済">⇢ </span>}
+                      {isExtended && <span className="gantt-shift-icon" title="期間延長">⏳ </span>}
                       {width > 80 ? t.title : ''}
                     </div>
                   </div>
