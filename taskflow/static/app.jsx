@@ -187,7 +187,7 @@ const shiftOverlappingTasks = (tasks, holidayMode) => {
 
   for (const indices of Object.values(byAssignee)) {
     const assigneeTasks = indices
-      .filter(idx => result[idx].start_date && result[idx].estimated_hours > 0);
+      .filter(idx => result[idx].start_date && result[idx].estimated_hours > 0 && result[idx].status !== 'done');
 
     if (assigneeTasks.length === 0) continue;
 
@@ -257,12 +257,13 @@ const shiftOverlappingTasks = (tasks, holidayMode) => {
     });
   }
 
-  // 未割当タスクは通常通り
-  for (const idx of unassigned) {
-    const t = result[idx];
-    t.end_date = calcEndDate(t.start_date, t.estimated_hours, holidayMode);
-    t.shifted_start_date = t.start_date;
-  }
+  // 未割当タスク・完了タスクは通常通り（競合計算に含めない）
+  result.forEach(t => {
+    if (!t.end_date) {
+      t.end_date = calcEndDate(t.start_date, t.estimated_hours, holidayMode);
+      t.shifted_start_date = t.start_date;
+    }
+  });
 
   return result;
 };
