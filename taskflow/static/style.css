@@ -194,6 +194,31 @@ label {
 .search-input { max-width: 240px; }
 .filter-separator { width: 1px; height: 24px; background: var(--border); flex-shrink: 0; }
 
+/* Multi-select dropdown */
+.multi-select-dropdown { position: relative; }
+.multi-select-btn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--bg); font-size: 13px; color: var(--text-muted);
+  cursor: pointer; white-space: nowrap; transition: border-color 0.15s;
+}
+.multi-select-btn:hover { border-color: var(--accent); }
+.multi-select-btn.has-selection { color: var(--text); border-color: var(--accent); background: var(--accent-dim); }
+.multi-select-arrow { font-size: 8px; }
+.multi-select-menu {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 100;
+  min-width: 180px; max-height: 240px; overflow-y: auto;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.12); padding: 4px 0;
+}
+.multi-select-option {
+  display: flex; align-items: center; gap: 8px; padding: 6px 12px;
+  font-size: 13px; cursor: pointer; transition: background 0.1s;
+}
+.multi-select-option:hover { background: var(--bg-hover); }
+.multi-select-option input[type="checkbox"] { accent-color: var(--accent); }
+.multi-select-empty { padding: 8px 12px; font-size: 12px; color: var(--text-muted); }
+
 /* ==================== Task List ==================== */
 .task-list-view { flex: 1; overflow: auto; padding: 20px 24px; }
 
@@ -309,12 +334,22 @@ label {
 
 .gantt-sidebar {
   width: 280px;
-  min-width: 280px;
-  border-right: 2px solid var(--border);
+  min-width: 150px;
+  border-right: none;
   display: flex;
   flex-direction: column;
   background: var(--bg-secondary);
+  flex-shrink: 0;
 }
+
+.gantt-resize-handle {
+  width: 5px;
+  cursor: col-resize;
+  background: var(--border);
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.gantt-resize-handle:hover { background: var(--accent); }
 
 .gantt-sidebar-header {
   height: 64px;
