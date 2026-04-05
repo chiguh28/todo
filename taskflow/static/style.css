@@ -676,3 +676,176 @@ label {
 .gantt-bar-subtask .gantt-bar-schedule {
   opacity: 0.8;
 }
+
+/* ============ Document Modal ============ */
+.doc-modal {
+  width: 80vw;
+  max-width: 1100px;
+  height: 80vh;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.doc-modal .modal-header {
+  padding: 16px 20px;
+  flex-shrink: 0;
+}
+.doc-modal-task-id {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  margin-left: 8px;
+  font-weight: 400;
+}
+.doc-modal-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid var(--border);
+  padding: 0 20px;
+  flex-shrink: 0;
+}
+.doc-tab-btn {
+  background: none;
+  border: none;
+  padding: 8px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: color 0.15s;
+}
+.doc-tab-btn:hover { color: var(--text-primary); }
+.doc-tab-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.doc-modal-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  position: relative;
+}
+.doc-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 14px;
+  background: var(--bg-primary);
+  z-index: 2;
+}
+.doc-quill-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.doc-quill-container .ql-toolbar {
+  flex-shrink: 0;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+.doc-quill-container .ql-container {
+  flex: 1;
+  overflow-y: auto;
+  border: none;
+  font-size: 14px;
+  font-family: inherit;
+}
+.doc-quill-container .ql-editor {
+  min-height: 100%;
+  padding: 16px 20px;
+}
+.doc-quill-container .ql-editor img {
+  max-width: 100%;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+.doc-preview {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+.doc-preview .ql-editor {
+  padding: 0;
+  font-size: 14px;
+  font-family: inherit;
+}
+.doc-preview .ql-editor img {
+  max-width: 100%;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+.doc-empty {
+  color: var(--text-muted);
+  text-align: center;
+  margin-top: 40px;
+  font-size: 14px;
+}
+.doc-modal .modal-footer {
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ============ Document icon button ============ */
+.doc-icon-btn {
+  opacity: 0.35;
+  filter: grayscale(1);
+  transition: opacity 0.15s, filter 0.15s;
+  position: relative;
+}
+.doc-icon-btn:hover {
+  opacity: 0.7;
+  filter: grayscale(0.5);
+}
+.doc-icon-btn.has-doc {
+  opacity: 1;
+  filter: none;
+  color: var(--accent);
+}
+.doc-icon-btn.has-doc::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
+  background: #3b82f6;
+  border-radius: 50%;
+  border: 1px solid var(--bg-primary);
+}
+
+/* ============ Toast ============ */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--text-primary);
+  color: var(--bg-primary);
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  z-index: 9999;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+  animation: toast-in 0.2s ease;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(8px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}

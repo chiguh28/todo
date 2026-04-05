@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Plan A: リッチテキストエディタ（Quill.js）プロトタイプ</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <!-- Quill.js -->
+  <link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet" />
+  <script src="https://cdn.quilljs.com/1.3.7/quill.min.js"></script>
+
+  <style>
+    /* ==================== CSS Variables (TaskFlow identical) ==================== */
+    :root {
+      --bg-primary:    #F5F6FA;
+      --bg-secondary:  #FFFFFF;
+      --bg-tertiary:   #ECEEF3;
+      --bg-hover:      #E2E5EC;
+      --border:        #D0D4DE;
+      --text-primary:  #1C1F2A;
+      --text-secondary:#5A5F72;
+      --text-muted:    #8E93A6;
+      --accent:        #4A74E8;
+      --accent-hover:  #3A62D4;
+      --accent-dim:    rgba(74,116,232,0.10);
+      --danger:        #E04E4E;
+      --danger-dim:    rgba(224,78,78,0.10);
+      --success:       #28A070;
+      --success-dim:   rgba(40,160,112,0.10);
+      --warning:       #D48E1C;
+      --warning-dim:   rgba(212,142,28,0.10);
+      --radius:        8px;
+      --radius-lg:     12px;
+      --shadow:        0 2px 8px rgba(0,0,0,0.08);
+      --font:          'Noto Sans JP', sans-serif;
+      --mono:          'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+    /* ==================== Prototype Banner ==================== */
+    .proto-banner {
+      background: linear-gradient(90deg, #1C1F2A 0%, #2E3348 100%);
+      color: #fff;
+      padding: 9px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 12px;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      border-bottom: 2px solid var(--accent);
+    }
+
+    .proto-banner-tag {
+      background: var(--accent);
+      color: #fff;
+      padding: 2px 9px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .proto-banner-title { flex: 1; }
+
+    .proto-banner-note {
+      color: var(--text-muted);
+      font-size: 11px;
+      font-family: var(--mono);
+    }
+
+    /* ==================== App Header ==================== */
+    .app-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 24px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .app-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 16px;
+      letter-spacing: -0.02em;
+    }
+
+    .app-logo-icon {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(135deg, var(--accent), #7C6BDB);
+      border-radius: 6px;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+    }
+
+    .tab-group {
+      display: flex;
+      gap: 2px;
+      background: var(--bg-primary);
+      border-radius: 8px;
+      padding: 3px;
+    }
+
+    .tab-btn {
+      padding: 6px 20px;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      font-family: var(--font);
+      font-size: 13px;
+      font-weight: 500;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .tab-btn:hover { color: var(--text-primary); }
+    .tab-btn.active { background: var(--accent); color: white; }
+
+    /* ==================== Buttons ==================== */
+    .btn {
+      padding: 7px 16px;
+      border: none;
+      border-radius: var(--radius);
+      font-family: var(--font);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .btn-primary  { background: var(--accent); color: white; }
+    .btn-primary:hover  { background: var(--accent-hover); transform: translateY(-1px); }
+    .btn-secondary { background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border); }
+    .btn-secondary:hover { background: var(--bg-hover); }
+    .btn-ghost { background: transparent; color: var(--text-secondary); }
+    .btn-ghost:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .btn-icon {
+      width: 32px; height: 32px; padding: 0;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: var(--radius);
+    }
+
+    /* ==================== Main Content ==================== */
+    .main-content {
+      padding: 20px 24px;
+    }
+
+    /* ==================== Task Table ==================== */
+    .task-list-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .task-list-title {
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .task-stats {
+      display: flex;
+      gap: 16px;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    .task-stat-value {
+      font-weight: 600;
+      color: var(--text-primary);
+      font-family: var(--mono);
+    }
+
+    .task-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--bg-secondary);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+    }
+
+    .task-table th {
+      text-align: left;
+      padding: 10px 14px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-primary);
+    }
+
+    .task-table td {
+      padding: 10px 14px;
+      font-size: 13px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+
+    .task-table tbody tr:last-child td { border-bottom: none; }
+    .task-table tbody tr:nth-child(odd)  td { background: var(--bg-secondary); }
+    .task-table tbody tr:nth-child(even) td { background: var(--bg-tertiary); }
+    .task-table tbody tr:hover td { background: var(--bg-hover); transition: background 0.1s; }
+
+    .task-title-cell { font-weight: 500; }
+
+    /* Status badges */
+    .status-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .status-todo        { background: var(--bg-tertiary); color: var(--text-secondary); }
+    .status-in_progress { background: var(--accent-dim);  color: var(--accent); }
+    .status-done        { background: var(--success-dim); color: var(--success); }
+
+    /* Action buttons */
+    .action-btns { display: flex; gap: 4px; align-items: center; }
+
+    /* Document icon button */
+    .doc-btn {
+      width: 30px; height: 30px;
+      border: none; background: transparent;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 15px;
+      transition: background 0.15s, transform 0.1s;
+      position: relative;
+    }
+    .doc-btn:hover { background: var(--bg-hover); transform: scale(1.1); }
+    .doc-btn.has-doc { color: var(--accent); }
+    .doc-btn.no-doc  { color: var(--text-muted); filter: grayscale(1); opacity: 0.55; }
+    .doc-btn.has-doc::after {
+      content: '';
+      position: absolute;
+      top: 3px; right: 3px;
+      width: 6px; height: 6px;
+      background: var(--accent);
+      border-radius: 50%;
+      border: 1.5px solid var(--bg-secondary);
+    }
+
+    .edit-btn, .del-btn {
+      width: 30px; height: 30px;
+      border: none; background: transparent;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+      transition: background 0.15s;
+      color: var(--text-muted);
+    }
+    .edit-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+    .del-btn:hover  { background: var(--danger-dim); color: var(--danger); }
+
+    /* ==================== Modal Overlay ==================== */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+      backdrop-filter: blur(4px);
+      animation: fadeIn 0.15s;
+    }
+
+    .modal-overlay.hidden { display: none; }
+
+    @keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+    /* ==================== Document Modal ==================== */
+    .doc-modal {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      width: 80vw;
+      height: 80vh;
+      max-width: 1100px;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.18);
+      animation: slideUp 0.2s;
+      overflow: hidden;
+    }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-secondary);
+      flex-shrink: 0;
+    }
+
+    .modal-header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .modal-header-icon {
+      width: 32px; height: 32px;
+      background: var(--accent-dim);
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+    }
+
+    .modal-title {
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .modal-subtitle {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-family: var(--mono);
+      margin-top: 1px;
+    }
+
+    .modal-close {
+      width: 32px; height: 32px;
+      border: none; background: transparent;
+      border-radius: var(--radius);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      color: var(--text-muted);
+      transition: all 0.15s;
+    }
+    .modal-close:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+
+    /* ==================== Modal Tab Bar ==================== */
+    .modal-tabs {
+      display: flex;
+      gap: 0;
+      padding: 0 24px;
+      background: var(--bg-primary);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .modal-tab {
+      padding: 10px 18px;
+      border: none;
+      background: transparent;
+      font-family: var(--font);
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+      margin-bottom: -1px;
+    }
+
+    .modal-tab:hover { color: var(--text-primary); }
+    .modal-tab.active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+      background: transparent;
+    }
+
+    /* ==================== Editor Panel ==================== */
+    .modal-body {
+      flex: 1;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .tab-panel { display: none; flex: 1; overflow: hidden; flex-direction: column; }
+    .tab-panel.active { display: flex; }
+
+    /* Editor panel */
+    .editor-panel {
+      flex: 1;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      padding: 0;
+    }
+
+    /* Quill overrides to match TaskFlow palette */
+    .ql-toolbar.ql-snow {
+      border: none;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-primary);
+      padding: 8px 16px;
+      font-family: var(--font);
+      flex-shrink: 0;
+    }
+
+    .ql-toolbar.ql-snow .ql-formats { margin-right: 12px; }
+
+    .ql-toolbar.ql-snow button:hover .ql-stroke,
+    .ql-toolbar.ql-snow button.ql-active .ql-stroke,
+    .ql-toolbar.ql-snow .ql-picker-label:hover .ql-stroke {
+      stroke: var(--accent);
+    }
+
+    .ql-toolbar.ql-snow button:hover .ql-fill,
+    .ql-toolbar.ql-snow button.ql-active .ql-fill {
+      fill: var(--accent);
+    }
+
+    .ql-toolbar.ql-snow .ql-picker-label:hover,
+    .ql-toolbar.ql-snow .ql-picker-item:hover,
+    .ql-toolbar.ql-snow .ql-picker-item.ql-selected {
+      color: var(--accent);
+    }
+
+    .ql-toolbar.ql-snow .ql-picker-options {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+    }
+
+    .ql-container.ql-snow {
+      border: none;
+      flex: 1;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      font-family: var(--font);
+    }
+
+    .ql-editor {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 28px;
+      font-family: var(--font);
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--text-primary);
+      background: var(--bg-secondary);
+    }
+
+    .ql-editor h1 { font-size: 22px; font-weight: 700; margin: 20px 0 10px; letter-spacing: -0.02em; }
+    .ql-editor h2 { font-size: 18px; font-weight: 700; margin: 18px 0 8px; letter-spacing: -0.01em; padding-bottom: 6px; border-bottom: 2px solid var(--accent); color: var(--text-primary); }
+    .ql-editor h3 { font-size: 15px; font-weight: 600; margin: 14px 0 6px; color: var(--accent); }
+    .ql-editor p  { margin-bottom: 8px; }
+
+    .ql-editor ol, .ql-editor ul {
+      padding-left: 1.5em;
+      margin-bottom: 10px;
+    }
+
+    .ql-editor li { margin-bottom: 4px; }
+
+    .ql-editor pre.ql-syntax, .ql-editor pre {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      font-family: var(--mono);
+      font-size: 13px;
+      color: var(--text-primary);
+      margin: 10px 0;
+      overflow-x: auto;
+    }
+
+    .ql-editor blockquote {
+      border-left: 3px solid var(--accent);
+      padding-left: 14px;
+      color: var(--text-secondary);
+      margin: 10px 0;
+    }
+
+    .ql-editor a { color: var(--accent); text-decoration: underline; }
+
+    .ql-editor img {
+      max-width: 100%;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      margin: 8px 0;
+    }
+
+    /* Image tooltip override */
+    .ql-snow .ql-tooltip {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+      color: var(--text-primary);
+      font-family: var(--font);
+      font-size: 13px;
+    }
+    .ql-snow .ql-tooltip input[type=text] {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      font-family: var(--font);
+      border-radius: 6px;
+    }
+    .ql-snow .ql-tooltip a.ql-action,
+    .ql-snow .ql-tooltip a.ql-remove {
+      color: var(--accent);
+    }
+
+    /* ==================== Preview Panel ==================== */
+    .preview-panel {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 28px;
+      background: var(--bg-secondary);
+    }
+
+    .preview-content { font-size: 14px; line-height: 1.7; color: var(--text-primary); }
+    .preview-content h1 { font-size: 22px; font-weight: 700; margin: 20px 0 10px; letter-spacing: -0.02em; }
+    .preview-content h2 { font-size: 18px; font-weight: 700; margin: 18px 0 8px; padding-bottom: 6px; border-bottom: 2px solid var(--accent); }
+    .preview-content h3 { font-size: 15px; font-weight: 600; margin: 14px 0 6px; color: var(--accent); }
+    .preview-content p  { margin-bottom: 8px; }
+    .preview-content ol, .preview-content ul { padding-left: 1.5em; margin-bottom: 10px; }
+    .preview-content li { margin-bottom: 4px; }
+    .preview-content pre {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      font-family: var(--mono);
+      font-size: 13px;
+      overflow-x: auto;
+      margin: 10px 0;
+    }
+    .preview-content blockquote {
+      border-left: 3px solid var(--accent);
+      padding-left: 14px;
+      color: var(--text-secondary);
+      margin: 10px 0;
+    }
+    .preview-content a { color: var(--accent); text-decoration: underline; }
+    .preview-content img { max-width: 100%; border-radius: var(--radius); border: 1px solid var(--border); margin: 8px 0; }
+    .preview-content strong { font-weight: 700; }
+    .preview-content em { font-style: italic; }
+    .preview-content code {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    .preview-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--text-muted);
+      gap: 10px;
+      font-size: 14px;
+    }
+
+    .preview-empty-icon { font-size: 40px; opacity: 0.4; }
+
+    /* ==================== Modal Footer ==================== */
+    .modal-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 24px;
+      border-top: 1px solid var(--border);
+      background: var(--bg-primary);
+      flex-shrink: 0;
+    }
+
+    .modal-footer-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .modal-footer-right {
+      display: flex;
+      gap: 8px;
+    }
+
+    /* Image upload hint */
+    .img-upload-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .img-upload-label:hover { background: var(--bg-hover); color: var(--text-primary); }
+    #image-file-input { display: none; }
+
+    /* ==================== Toast ==================== */
+    .toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 9999;
+      pointer-events: none;
+    }
+
+    .toast {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 18px;
+      background: var(--text-primary);
+      color: #fff;
+      border-radius: var(--radius);
+      font-size: 13px;
+      font-weight: 500;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+      animation: toastIn 0.25s cubic-bezier(0.34,1.56,0.64,1);
+      pointer-events: auto;
+    }
+
+    .toast.success { background: var(--success); }
+    .toast.error   { background: var(--danger); }
+    .toast.warning { background: var(--warning); }
+
+    .toast-icon { font-size: 16px; }
+
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateX(30px) scale(0.9); }
+      to   { opacity: 1; transform: translateX(0) scale(1); }
+    }
+
+    @keyframes toastOut {
+      from { opacity: 1; transform: translateX(0) scale(1); }
+      to   { opacity: 0; transform: translateX(30px) scale(0.9); }
+    }
+
+    .toast.removing {
+      animation: toastOut 0.2s forwards;
+    }
+
+    /* ==================== Misc UI ==================== */
+    .no-tasks {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    .assignee-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+    }
+
+    .assignee-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    /* No. column */
+    .col-no { width: 52px; color: var(--text-muted); font-family: var(--mono); font-size: 12px; }
+
+    /* Saving indicator dot */
+    .save-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--success);
+      display: inline-block;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .save-dot.visible { opacity: 1; }
+
+  </style>
+</head>
+<body>
+
+  <!-- ==================== Prototype Banner ==================== -->
+  <div class="proto-banner">
+    <span class="proto-banner-tag">Prototype</span>
+    <span class="proto-banner-title">Plan A: リッチテキストエディタ（Quill.js）プロトタイプ</span>
+    <span class="proto-banner-note">バックエンド不要 &mdash; ブラウザのみで動作</span>
+  </div>
+
+  <!-- ==================== App Header ==================== -->
+  <header class="app-header">
+    <div class="app-logo">
+      <div class="app-logo-icon">✓</div>
+      TaskFlow
+    </div>
+    <div class="tab-group">
+      <button class="tab-btn active">タスク一覧</button>
+      <button class="tab-btn">ガントチャート</button>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-secondary btn-sm">＋ タスク追加</button>
+    </div>
+  </header>
+
+  <!-- ==================== Main Content ==================== -->
+  <main class="main-content">
+    <div class="task-list-header">
+      <div class="task-list-title">タスク一覧</div>
+      <div class="task-stats">
+        <span>合計 <span class="task-stat-value">5</span></span>
+        <span>進行中 <span class="task-stat-value">2</span></span>
+        <span>完了 <span class="task-stat-value">1</span></span>
+      </div>
+    </div>
+
+    <table class="task-table" id="task-table">
+      <thead>
+        <tr>
+          <th class="col-no">No.</th>
+          <th>タスク名</th>
+          <th>担当</th>
+          <th>ステータス</th>
+          <th style="width:120px;">アクション</th>
+        </tr>
+      </thead>
+      <tbody id="task-tbody">
+        <!-- rows injected by JS -->
+      </tbody>
+    </table>
+  </main>
+
+  <!-- ==================== Document Modal ==================== -->
+  <div class="modal-overlay hidden" id="modal-overlay">
+    <div class="doc-modal" role="dialog" aria-modal="true" aria-labelledby="modal-task-title">
+
+      <div class="modal-header">
+        <div class="modal-header-left">
+          <div class="modal-header-icon">📄</div>
+          <div>
+            <div class="modal-title" id="modal-task-title">手順書</div>
+            <div class="modal-subtitle" id="modal-task-subtitle">タスク No. —</div>
+          </div>
+        </div>
+        <button class="modal-close" id="modal-close-btn" aria-label="閉じる">✕</button>
+      </div>
+
+      <div class="modal-tabs">
+        <button class="modal-tab active" data-tab="editor">✏️ 編集</button>
+        <button class="modal-tab" data-tab="preview">👁 プレビュー</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Editor panel -->
+        <div class="tab-panel active" id="panel-editor">
+          <div class="editor-panel">
+            <div id="quill-editor"></div>
+          </div>
+        </div>
+
+        <!-- Preview panel -->
+        <div class="tab-panel" id="panel-preview">
+          <div class="preview-panel">
+            <div class="preview-content" id="preview-content"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <div class="modal-footer-left">
+          <label class="img-upload-label" for="image-file-input">
+            🖼 画像を挿入
+          </label>
+          <input type="file" id="image-file-input" accept="image/*" />
+          <span class="save-dot" id="save-dot"></span>
+          <span id="save-status" style="font-size:12px;color:var(--text-muted);"></span>
+        </div>
+        <div class="modal-footer-right">
+          <button class="btn btn-secondary" id="cancel-btn">キャンセル</button>
+          <button class="btn btn-primary" id="save-btn">💾 保存</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ==================== Toast Container ==================== -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <script>
+    // ============================================================
+    //  Mock data
+    // ============================================================
+    const TASKS = [
+      { id: 1, title: 'サーバー初期設定',    assignee: '田中', assigneeColor: '#4A74E8', status: 'in_progress', hasDoc: true  },
+      { id: 2, title: 'DBバックアップ手順',  assignee: '佐藤', assigneeColor: '#28A070', status: 'done',        hasDoc: true  },
+      { id: 3, title: 'デプロイフロー整備',  assignee: '鈴木', assigneeColor: '#D48E1C', status: 'todo',        hasDoc: false },
+      { id: 4, title: '監視アラート設定',    assignee: '田中', assigneeColor: '#4A74E8', status: 'in_progress', hasDoc: false },
+      { id: 5, title: 'SSL証明書更新手順',   assignee: '佐藤', assigneeColor: '#28A070', status: 'todo',        hasDoc: true  },
+    ];
+
+    const STATUS_LABELS = {
+      todo:        '未着手',
+      in_progress: '進行中',
+      done:        '完了',
+    };
+
+    // ============================================================
+    //  Document store (in-memory, per task)
+    // ============================================================
+    const docStore = {
+      1: `<h2>サーバー初期設定 手順書</h2>
+<h3>手順1: SSHでサーバーに接続</h3>
+<p>以下のコマンドでサーバーに接続します:</p>
+<pre class="ql-syntax">ssh user@192.168.1.100</pre>
+<h3>手順2: パッケージを更新</h3>
+<ol>
+  <li>apt update を実行</li>
+  <li>apt upgrade を実行</li>
+  <li>再起動が必要か確認</li>
+</ol>
+<p><strong>注意:</strong> 本番環境では必ずバックアップを取ってから実行してください。</p>`,
+
+      2: `<h2>DBバックアップ手順書</h2>
+<h3>手順1: バックアップスクリプトを確認</h3>
+<p>以下のパスにスクリプトが配置されています:</p>
+<pre class="ql-syntax">/opt/scripts/db_backup.sh</pre>
+<h3>手順2: スクリプトを実行</h3>
+<ol>
+  <li>rootユーザーに切り替え</li>
+  <li><code>./db_backup.sh</code> を実行</li>
+  <li>バックアップファイルを確認する</li>
+</ol>
+<p>バックアップファイルは <strong>/var/backups/db/</strong> に保存されます。</p>`,
+
+      5: `<h2>SSL証明書更新手順書</h2>
+<h3>手順1: 証明書の有効期限を確認</h3>
+<pre class="ql-syntax">openssl x509 -noout -dates -in /etc/ssl/certs/server.crt</pre>
+<h3>手順2: Let's Encryptで更新</h3>
+<ol>
+  <li>certbot renew --dry-run で確認</li>
+  <li>問題なければ certbot renew を実行</li>
+  <li>Webサーバーを再起動</li>
+</ol>
+<p><strong>期限30日前</strong>を目安に更新作業を行ってください。</p>`,
+    };
+
+    // ============================================================
+    //  Render task table
+    // ============================================================
+    function renderTable() {
+      const tbody = document.getElementById('task-tbody');
+      tbody.innerHTML = '';
+      TASKS.forEach((task, idx) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="col-no">${String(idx + 1).padStart(2, '0')}</td>
+          <td class="task-title-cell">${escHtml(task.title)}</td>
+          <td>
+            <span class="assignee-chip">
+              <span class="assignee-dot" style="background:${task.assigneeColor}"></span>
+              ${escHtml(task.assignee)}
+            </span>
+          </td>
+          <td>
+            <span class="status-badge status-${task.status}">${STATUS_LABELS[task.status]}</span>
+          </td>
+          <td>
+            <div class="action-btns">
+              <button class="doc-btn ${task.hasDoc ? 'has-doc' : 'no-doc'}"
+                      title="${task.hasDoc ? 'ドキュメントを編集' : 'ドキュメントを作成'}"
+                      data-task-id="${task.id}"
+                      aria-label="ドキュメント">📄</button>
+              <button class="edit-btn" title="タスクを編集" aria-label="編集">✏️</button>
+              <button class="del-btn"  title="タスクを削除" aria-label="削除">🗑</button>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      // Bind doc button clicks
+      tbody.querySelectorAll('.doc-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const taskId = parseInt(btn.dataset.taskId, 10);
+          openDocModal(taskId);
+        });
+      });
+    }
+
+    function escHtml(str) {
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    // ============================================================
+    //  Quill setup
+    // ============================================================
+    let quill = null;
+    let currentTaskId = null;
+
+    function initQuill() {
+      if (quill) return;
+
+      quill = new Quill('#quill-editor', {
+        theme: 'snow',
+        placeholder: 'ここに手順を入力してください...',
+        modules: {
+          toolbar: [
+            [{ header: [1, 2, 3, false] }],
+            ['bold', 'italic', 'underline'],
+            [{ list: 'ordered' }, { list: 'bullet' }],
+            ['link', 'image', 'code-block'],
+            ['clean'],
+          ],
+        },
+      });
+
+      // Override image handler → file picker
+      quill.getModule('toolbar').addHandler('image', () => {
+        document.getElementById('image-file-input').click();
+      });
+    }
+
+    // ============================================================
+    //  Open / close modal
+    // ============================================================
+    function openDocModal(taskId) {
+      const task = TASKS.find(t => t.id === taskId);
+      if (!task) return;
+
+      currentTaskId = taskId;
+
+      // Update modal header
+      document.getElementById('modal-task-title').textContent = task.title;
+      document.getElementById('modal-task-subtitle').textContent = `タスク No. ${String(taskId).padStart(2,'0')}`;
+
+      // Init Quill lazily
+      initQuill();
+
+      // Load content
+      const html = docStore[taskId] || '';
+      quill.root.innerHTML = html;
+
+      // Show editor tab
+      switchTab('editor');
+
+      // Show overlay
+      const overlay = document.getElementById('modal-overlay');
+      overlay.classList.remove('hidden');
+      overlay.style.animation = 'none';
+      requestAnimationFrame(() => {
+        overlay.style.animation = '';
+      });
+
+      clearSaveStatus();
+    }
+
+    function closeDocModal() {
+      document.getElementById('modal-overlay').classList.add('hidden');
+      currentTaskId = null;
+    }
+
+    // ============================================================
+    //  Tab switching
+    // ============================================================
+    function switchTab(tabId) {
+      document.querySelectorAll('.modal-tab').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tabId);
+      });
+      document.querySelectorAll('.tab-panel').forEach(panel => {
+        panel.classList.toggle('active', panel.id === `panel-${tabId}`);
+      });
+
+      if (tabId === 'preview') {
+        syncPreview();
+      }
+    }
+
+    function syncPreview() {
+      const html = quill ? quill.root.innerHTML : '';
+      const previewEl = document.getElementById('preview-content');
+      const trimmed = html.replace(/<p><br><\/p>/g, '').trim();
+      if (!trimmed || trimmed === '<p></p>') {
+        previewEl.innerHTML = `
+          <div class="preview-empty">
+            <div class="preview-empty-icon">📄</div>
+            <div>まだ内容がありません</div>
+          </div>`;
+      } else {
+        previewEl.innerHTML = html;
+      }
+    }
+
+    // ============================================================
+    //  Save
+    // ============================================================
+    function saveDoc() {
+      if (!quill || currentTaskId === null) return;
+
+      const html = quill.root.innerHTML;
+      docStore[currentTaskId] = html;
+
+      // Mark task as having a doc
+      const task = TASKS.find(t => t.id === currentTaskId);
+      if (task) {
+        task.hasDoc = true;
+        renderTable();
+      }
+
+      showToast('保存しました', 'success', '✓');
+      showSaveStatus();
+    }
+
+    function showSaveStatus() {
+      const dot  = document.getElementById('save-dot');
+      const span = document.getElementById('save-status');
+      dot.classList.add('visible');
+      const now = new Date();
+      span.textContent = `最終保存: ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}`;
+    }
+
+    function clearSaveStatus() {
+      document.getElementById('save-dot').classList.remove('visible');
+      document.getElementById('save-status').textContent = '';
+    }
+
+    // ============================================================
+    //  Image file upload → base64 embed
+    // ============================================================
+    document.getElementById('image-file-input').addEventListener('change', function () {
+      const file = this.files[0];
+      if (!file || !quill) return;
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const range = quill.getSelection(true);
+        quill.insertEmbed(range ? range.index : 0, 'image', e.target.result, Quill.sources.USER);
+        quill.setSelection((range ? range.index : 0) + 1);
+        showToast('画像を挿入しました', 'success', '🖼');
+      };
+      reader.readAsDataURL(file);
+
+      // Reset so same file can be re-selected
+      this.value = '';
+    });
+
+    // ============================================================
+    //  Toast notifications
+    // ============================================================
+    function showToast(message, type = '', icon = 'ℹ') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.innerHTML = `<span class="toast-icon">${icon}</span><span>${escHtml(message)}</span>`;
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.classList.add('removing');
+        toast.addEventListener('animationend', () => toast.remove());
+      }, 2800);
+    }
+
+    // ============================================================
+    //  Event wiring
+    // ============================================================
+    document.getElementById('modal-close-btn').addEventListener('click', closeDocModal);
+    document.getElementById('cancel-btn').addEventListener('click', closeDocModal);
+    document.getElementById('save-btn').addEventListener('click', saveDoc);
+
+    // Close on backdrop click
+    document.getElementById('modal-overlay').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) closeDocModal();
+    });
+
+    // Keyboard: Escape closes, Ctrl/Cmd+S saves
+    document.addEventListener('keydown', (e) => {
+      if (document.getElementById('modal-overlay').classList.contains('hidden')) return;
+      if (e.key === 'Escape') closeDocModal();
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        saveDoc();
+      }
+    });
+
+    // Modal tab buttons
+    document.querySelectorAll('.modal-tab').forEach(btn => {
+      btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+    });
+
+    // ============================================================
+    //  Boot
+    // ============================================================
+    renderTable();
+  </script>
+</body>
+</html>

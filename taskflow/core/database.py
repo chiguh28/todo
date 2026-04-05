@@ -96,6 +96,16 @@ def init_db():
         db.execute("ALTER TABLE tasks ADD COLUMN category TEXT DEFAULT ''")
         db.commit()
         cols = [r[1] for r in db.execute("PRAGMA table_info(tasks)").fetchall()]
+    # task_documents テーブル
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS task_documents (
+            task_id INTEGER PRIMARY KEY,
+            content TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+            FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+        )
+    """)
+    db.commit()
     # デフォルトユーザーの初期投入
     if db.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0:
         db.executemany(

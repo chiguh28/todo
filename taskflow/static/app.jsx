@@ -453,8 +453,146 @@ function UserManagerModal({ users, onClose, onRefresh }) {
   );
 }
 
+// ============ Toast ============
+function Toast({ message, onDone }) {
+  useEffect(() => {
+    const t = setTimeout(onDone, 3000);
+    return () => clearTimeout(t);
+  }, [onDone]);
+  return <div className="toast">{message}</div>;
+}
+
+// ============ DocumentModal ============
+function DocumentModal({ task, onClose, onSaved }) {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const quillContainerRef = useRef(null);
+  const quillRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    const q = new Quill(quillContainerRef.current, {
+      theme: 'snow',
+      modules: {
+        toolbar: {
+          container: [
+            [{ header: [1, 2, 3, false] }],
+            ['bold', 'italic', 'underline'],
+            [{ list: 'ordered' }, { list: 'bullet' }],
+            ['link', 'image', 'code-block'],
+            ['clean'],
+          ],
+          handlers: {
+            image: () => fileInputRef.current && fileInputRef.current.click(),
+          },
+        },
+      },
+    });
+    quillRef.current = q;
+    api.get(`/api/tasks/${task.id}/document`).then(data => {
+      if (data.content) q.root.innerHTML = data.content;
+      setLoading(false);
+    });
+  }, []);
+
+  const handleSave = async () => {
+    if (!quillRef.current) return;
+    setSaving(true);
+    try {
+      await api.put(`/api/tasks/${task.id}/document`, { content: quillRef.current.root.innerHTML });
+      onSaved();
+    } catch (e) {
+      alert('保存に失敗しました。再度お試しください。');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleOpenPreview = () => {
+    if (!quillRef.current) return;
+    const sanitized = DOMPurify.sanitize(quillRef.current.root.innerHTML);
+    const html = `<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>${task.title} — 手順書プレビュー</title>
+<link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  body { font-family: 'Noto Sans JP', sans-serif; max-width: 900px; margin: 40px auto; padding: 0 24px 60px; color: #1a1a2e; }
+  h1.doc-title { font-size: 18px; color: #666; border-bottom: 1px solid #e5e7eb; padding-bottom: 12px; margin-bottom: 28px; font-weight: 500; }
+  .doc-title span { font-size: 13px; color: #aaa; font-family: monospace; margin-left: 8px; }
+  .ql-editor { padding: 0; font-size: 15px; line-height: 1.7; }
+  .ql-editor img { max-width: 100%; border-radius: 6px; border: 1px solid #e5e7eb; }
+  .ql-container.ql-snow { border: none; }
+</style>
+</head>
+<body>
+<h1 class="doc-title">📄 ${task.title}<span>#${task.id}</span></h1>
+<div class="ql-editor">${sanitized}</div>
+</body>
+</html>`;
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+    setTimeout(() => URL.revokeObjectURL(url), 15000);
+  };
+
+  const handleImageInsert = (e) => {
+    const file = e.target.files[0];
+    if (!file || !quillRef.current) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const q = quillRef.current;
+      const range = q.getSelection(true);
+      q.insertEmbed(range ? range.index : 0, 'image', ev.target.result);
+      if (range) q.setSelection(range.index + 1);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal doc-modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <div className="modal-title">
+            📄 手順書 — {task.title}
+            <span className="doc-modal-task-id">#{task.id}</span>
+          </div>
+          <button className="btn btn-ghost btn-icon" onClick={onClose}>✕</button>
+        </div>
+
+        <div className="doc-modal-body">
+          {loading && <div className="doc-loading">読み込み中...</div>}
+          <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+            <div ref={quillContainerRef} className="doc-quill-container" />
+          </div>
+        </div>
+
+        <div className="modal-footer">
+          <button className="btn btn-secondary btn-sm"
+                  onClick={() => fileInputRef.current && fileInputRef.current.click()}>
+            🖼 画像を挿入
+          </button>
+          <button className="btn btn-secondary btn-sm" onClick={handleOpenPreview}>
+            🔍 プレビュー
+          </button>
+          <div style={{ flex: 1 }} />
+          <button className="btn btn-secondary" onClick={onClose}>閉じる</button>
+          <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+            {saving ? '保存中...' : '💾 保存'}
+          </button>
+        </div>
+        <input type="file" ref={fileInputRef} style={{ display: 'none' }} accept="image/*"
+               onChange={handleImageInsert} />
+      </div>
+    </div>
+  );
+}
+
 // ============ TaskListView ============
-function TaskListView({ tasks, users, onEdit, onDelete, onAddSubtask }) {
+function TaskListView({ tasks, users, onEdit, onDelete, onAddSubtask, onOpenDoc }) {
   // 親タスクだけカウント
   const parentTasks = tasks.filter(t => !t.parent_id);
   const totalTasks = parentTasks.length;
@@ -588,6 +726,8 @@ function TaskListView({ tasks, users, onEdit, onDelete, onAddSubtask }) {
                       <button className="btn btn-ghost btn-sm" onClick={() => onAddSubtask(t)} title="サブタスク追加">＋</button>
                     )}
                     <button className="btn btn-ghost btn-sm" onClick={() => onEdit(t)} title="編集">✏️</button>
+                    <button className={`btn btn-ghost btn-sm doc-icon-btn${t.has_document ? ' has-doc' : ''}`}
+                            onClick={() => onOpenDoc(t)} title="手順書">📄</button>
                     <button className="btn btn-ghost btn-sm" onClick={() => onDelete(t.id)} title="削除">🗑️</button>
                   </div>
                 </td>
@@ -933,6 +1073,9 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [holidayMode, setHolidayMode] = useState(() => localStorage.getItem('holidayMode') || 'weekends');
   const [subtaskParent, setSubtaskParent] = useState(null);
+  const [showDocModal, setShowDocModal] = useState(false);
+  const [docTask, setDocTask] = useState(null);
+  const [toast, setToast] = useState(null);
 
   const handleHolidayModeChange = (mode) => {
     setHolidayMode(mode);
@@ -1018,6 +1161,8 @@ function App() {
   };
 
   const handleEditTask = (task) => { setEditingTask(task); setSubtaskParent(null); setShowTaskForm(true); };
+  const handleOpenDoc = (task) => { setDocTask(task); setShowDocModal(true); };
+  const handleDocSaved = () => { fetchTasks(); setToast('手順書を保存しました'); };
 
   const handleAddSubtask = (parentTask) => {
     setSubtaskParent(parentTask);
@@ -1116,7 +1261,7 @@ function App() {
           <div className="task-list-view">
             <TaskListView tasks={filteredTasks} users={users}
                           onEdit={handleEditTask} onDelete={handleDeleteTask}
-                          onAddSubtask={handleAddSubtask} />
+                          onAddSubtask={handleAddSubtask} onOpenDoc={handleOpenDoc} />
           </div>
         ) : view === 'gantt' ? (
           <GanttChart tasks={filteredTasks} users={users} holidayMode={holidayMode}
@@ -1142,6 +1287,12 @@ function App() {
                           onClose={() => setShowUserManager(false)}
                           onRefresh={fetchUsers} />
       )}
+      {showDocModal && docTask && (
+        <DocumentModal task={docTask}
+                       onClose={() => { setShowDocModal(false); setDocTask(null); }}
+                       onSaved={handleDocSaved} />
+      )}
+      {toast && <Toast message={toast} onDone={() => setToast(null)} />}
     </>
   );
 }

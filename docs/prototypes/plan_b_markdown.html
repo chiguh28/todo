@@ -1,0 +1,1252 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Plan B: Markdownエディタ プロトタイプ — TaskFlow</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <!-- marked.js for Markdown parsing -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>
+
+  <style>
+    /* ==================== CSS Variables (TaskFlow identical) ==================== */
+    :root {
+      --bg-primary:    #F5F6FA;
+      --bg-secondary:  #FFFFFF;
+      --bg-tertiary:   #ECEEF3;
+      --bg-hover:      #E2E5EC;
+      --border:        #D0D4DE;
+      --text-primary:  #1C1F2A;
+      --text-secondary:#5A5F72;
+      --text-muted:    #8E93A6;
+      --accent:        #4A74E8;
+      --accent-hover:  #3A62D4;
+      --accent-dim:    rgba(74, 116, 232, 0.10);
+      --danger:        #E04E4E;
+      --danger-dim:    rgba(224, 78, 78, 0.10);
+      --success:       #28A070;
+      --success-dim:   rgba(40, 160, 112, 0.10);
+      --warning:       #D48E1C;
+      --warning-dim:   rgba(212, 142, 28, 0.10);
+      --radius:        8px;
+      --radius-lg:     12px;
+      --shadow:        0 2px 8px rgba(0, 0, 0, 0.08);
+      --shadow-lg:     0 8px 32px rgba(0, 0, 0, 0.14);
+      --font:          'Noto Sans JP', sans-serif;
+      --mono:          'JetBrains Mono', monospace;
+    }
+
+    /* ==================== Reset ==================== */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+    /* ==================== Prototype Banner ==================== */
+    .proto-banner {
+      background: linear-gradient(90deg, #1C1F2A 0%, #2D3250 100%);
+      color: #fff;
+      padding: 8px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      letter-spacing: 0.03em;
+      flex-shrink: 0;
+    }
+    .proto-banner-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .proto-badge {
+      background: var(--accent);
+      color: white;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 2px 8px;
+      border-radius: 4px;
+    }
+    .proto-banner-title { font-weight: 600; }
+    .proto-banner-sub { color: rgba(255,255,255,0.5); font-size: 11px; }
+
+    /* ==================== App Header ==================== */
+    .app-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 24px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .app-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      font-size: 16px;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+      text-decoration: none;
+    }
+    .app-logo-icon {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(135deg, var(--accent), #7C6BDB);
+      border-radius: 6px;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+    }
+
+    .tab-group {
+      display: flex;
+      gap: 2px;
+      background: var(--bg-primary);
+      border-radius: 8px;
+      padding: 3px;
+    }
+    .tab-btn {
+      padding: 6px 20px;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      font-family: var(--font);
+      font-size: 13px;
+      font-weight: 500;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .tab-btn:hover { color: var(--text-primary); background: var(--bg-hover); }
+    .tab-btn.active { background: var(--accent); color: white; }
+
+    /* ==================== Filter Bar ==================== */
+    .filter-bar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 12px 24px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border);
+    }
+    .filter-bar select,
+    .filter-bar input[type="text"] {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      font-family: var(--font);
+      font-size: 13px;
+      padding: 6px 10px;
+      border-radius: var(--radius);
+      outline: none;
+      transition: border-color 0.15s;
+      cursor: pointer;
+    }
+    .filter-bar select:focus,
+    .filter-bar input[type="text"]:focus { border-color: var(--accent); }
+    .filter-bar input[type="text"] { width: 220px; }
+    .filter-separator { width: 1px; height: 24px; background: var(--border); }
+
+    /* ==================== Buttons ==================== */
+    .btn {
+      padding: 7px 16px;
+      border: none;
+      border-radius: var(--radius);
+      font-family: var(--font);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-primary { background: var(--accent); color: white; }
+    .btn-primary:hover { background: var(--accent-hover); transform: translateY(-1px); }
+    .btn-secondary {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { background: var(--bg-hover); }
+    .btn-danger { background: var(--danger-dim); color: var(--danger); }
+    .btn-danger:hover { background: var(--danger); color: white; }
+    .btn-ghost { background: transparent; color: var(--text-secondary); }
+    .btn-ghost:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .btn-icon {
+      width: 30px; height: 30px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius);
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      font-size: 15px;
+      transition: all 0.15s;
+      color: var(--text-secondary);
+    }
+    .btn-icon:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+
+    /* ==================== Main Content ==================== */
+    .main-content { padding: 24px; }
+
+    /* ==================== Task List ==================== */
+    .task-list-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .task-stats {
+      display: flex;
+      gap: 16px;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+    .task-stat-value {
+      font-weight: 600;
+      color: var(--text-primary);
+      font-family: var(--mono);
+    }
+
+    .task-table { width: 100%; border-collapse: collapse; }
+    .task-table th {
+      text-align: left;
+      padding: 10px 14px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-primary);
+    }
+    .task-table td {
+      padding: 10px 14px;
+      font-size: 13px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+    .task-table tbody tr:nth-child(odd) td  { background: var(--bg-secondary); }
+    .task-table tbody tr:nth-child(even) td { background: var(--bg-tertiary); }
+    .task-table tbody tr:hover td { background: var(--bg-hover); }
+
+    .task-no {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text-muted);
+      width: 48px;
+    }
+    .task-title-cell { font-weight: 500; }
+
+    /* Status badges */
+    .status-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .status-todo        { background: var(--bg-tertiary); color: var(--text-secondary); }
+    .status-in_progress { background: var(--accent-dim);  color: var(--accent); }
+    .status-done        { background: var(--success-dim); color: var(--success); }
+
+    /* Assignee chip */
+    .assignee-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+    }
+    .assignee-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      flex-shrink: 0;
+    }
+
+    /* Action buttons */
+    .action-btns { display: flex; gap: 4px; align-items: center; }
+
+    /* Doc icon button */
+    .btn-doc {
+      width: 30px; height: 30px;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius);
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      font-size: 15px;
+      transition: all 0.15s;
+    }
+    .btn-doc.has-doc {
+      color: var(--accent);
+    }
+    .btn-doc.has-doc:hover {
+      background: var(--accent-dim);
+      color: var(--accent-hover);
+    }
+    .btn-doc.no-doc {
+      color: var(--text-muted);
+    }
+    .btn-doc.no-doc:hover {
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+    }
+
+    /* ==================== Modal Overlay ==================== */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(28, 31, 42, 0.55);
+      backdrop-filter: blur(3px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      opacity: 0;
+      transition: opacity 0.2s;
+      pointer-events: none;
+    }
+    .modal-overlay.open {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    /* ==================== Editor Modal ==================== */
+    .editor-modal {
+      width: 88vw;
+      height: 82vh;
+      max-width: 1400px;
+      background: var(--bg-secondary);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transform: translateY(12px) scale(0.98);
+      transition: transform 0.2s ease, opacity 0.2s;
+    }
+    .modal-overlay.open .editor-modal {
+      transform: translateY(0) scale(1);
+    }
+
+    /* Modal header */
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-secondary);
+      flex-shrink: 0;
+    }
+    .modal-header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .modal-header-icon {
+      width: 32px; height: 32px;
+      background: var(--accent-dim);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      color: var(--accent);
+    }
+    .modal-header-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .modal-header-sub {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 1px;
+    }
+    .modal-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Toolbar */
+    .editor-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      padding: 8px 12px;
+      background: var(--bg-tertiary);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+    .toolbar-sep {
+      width: 1px;
+      height: 18px;
+      background: var(--border);
+      margin: 0 4px;
+    }
+    .toolbar-btn {
+      height: 28px;
+      padding: 0 8px;
+      border: none;
+      border-radius: 5px;
+      background: transparent;
+      color: var(--text-secondary);
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.12s;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+    }
+    .toolbar-btn:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+    .toolbar-btn:active {
+      background: var(--accent-dim);
+      color: var(--accent);
+    }
+    .toolbar-btn-icon { font-size: 14px; }
+    .toolbar-img-input { display: none; }
+
+    /* Split pane container */
+    .editor-body {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    /* Editor pane */
+    .editor-pane {
+      display: flex;
+      flex-direction: column;
+      min-width: 200px;
+      border-right: 1px solid var(--border);
+      flex-shrink: 0;
+      /* width set by JS */
+    }
+    .pane-label {
+      padding: 5px 14px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      background: var(--bg-tertiary);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .editor-textarea {
+      flex: 1;
+      border: none;
+      outline: none;
+      resize: none;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.75;
+      padding: 16px;
+      tab-size: 2;
+      overflow-y: auto;
+    }
+    .editor-textarea::placeholder { color: var(--text-muted); }
+
+    /* Drag handle */
+    .drag-handle {
+      width: 6px;
+      cursor: col-resize;
+      background: var(--border);
+      flex-shrink: 0;
+      position: relative;
+      transition: background 0.15s;
+      user-select: none;
+    }
+    .drag-handle:hover { background: var(--accent); }
+    .drag-handle::after {
+      content: '';
+      position: absolute;
+      inset: 0 -4px;
+    }
+
+    /* Preview pane */
+    .preview-pane {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 200px;
+      overflow: hidden;
+    }
+    .preview-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 24px;
+      background: var(--bg-secondary);
+    }
+
+    /* ==================== Markdown Preview Styles ==================== */
+    .md-preview {
+      max-width: 720px;
+      font-family: var(--font);
+      font-size: 14px;
+      line-height: 1.8;
+      color: var(--text-primary);
+    }
+    .md-preview h1 {
+      font-size: 22px;
+      font-weight: 700;
+      margin: 0 0 16px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid var(--border);
+      color: var(--text-primary);
+    }
+    .md-preview h2 {
+      font-size: 18px;
+      font-weight: 600;
+      margin: 24px 0 10px;
+      color: var(--text-primary);
+    }
+    .md-preview h3 {
+      font-size: 15px;
+      font-weight: 600;
+      margin: 20px 0 8px;
+      color: var(--text-secondary);
+    }
+    .md-preview p { margin: 0 0 12px; }
+    .md-preview ul, .md-preview ol {
+      margin: 0 0 12px;
+      padding-left: 22px;
+    }
+    .md-preview li { margin-bottom: 4px; }
+    .md-preview strong { font-weight: 700; color: var(--text-primary); }
+    .md-preview em { font-style: italic; color: var(--text-secondary); }
+    .md-preview code {
+      font-family: var(--mono);
+      font-size: 12px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      padding: 1px 5px;
+      border-radius: 4px;
+      color: var(--accent);
+    }
+    .md-preview pre {
+      background: #1C1F2A;
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      margin: 0 0 14px;
+      overflow-x: auto;
+    }
+    .md-preview pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      color: #A8D8A8;
+      font-size: 12.5px;
+      line-height: 1.7;
+    }
+    .md-preview blockquote {
+      border-left: 3px solid var(--accent);
+      margin: 0 0 12px;
+      padding: 8px 16px;
+      background: var(--accent-dim);
+      border-radius: 0 var(--radius) var(--radius) 0;
+      color: var(--text-secondary);
+      font-style: italic;
+    }
+    .md-preview table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0 0 14px;
+      font-size: 13px;
+    }
+    .md-preview th {
+      background: var(--bg-tertiary);
+      padding: 8px 12px;
+      text-align: left;
+      font-weight: 600;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+    .md-preview td {
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+    }
+    .md-preview tr:nth-child(even) td { background: var(--bg-tertiary); }
+    .md-preview img {
+      max-width: 100%;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      margin: 8px 0;
+    }
+    .md-preview a { color: var(--accent); text-decoration: none; }
+    .md-preview a:hover { text-decoration: underline; }
+    .md-preview hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 20px 0;
+    }
+
+    /* ==================== Toast Notification ==================== */
+    .toast-container {
+      position: fixed;
+      bottom: 28px;
+      right: 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 9999;
+      pointer-events: none;
+    }
+    .toast {
+      background: var(--text-primary);
+      color: #fff;
+      padding: 10px 18px;
+      border-radius: var(--radius);
+      font-size: 13px;
+      font-weight: 500;
+      box-shadow: var(--shadow-lg);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      animation: toastIn 0.25s ease forwards;
+      max-width: 320px;
+    }
+    .toast.success { border-left: 3px solid var(--success); }
+    .toast.error   { border-left: 3px solid var(--danger); }
+    .toast.fade-out { animation: toastOut 0.25s ease forwards; }
+
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateY(10px) scale(0.96); }
+      to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes toastOut {
+      from { opacity: 1; transform: translateY(0); }
+      to   { opacity: 0; transform: translateY(6px); }
+    }
+
+    /* ==================== Char / word count ==================== */
+    .editor-footer {
+      padding: 4px 14px;
+      background: var(--bg-tertiary);
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--text-muted);
+      font-family: var(--mono);
+      display: flex;
+      gap: 14px;
+      flex-shrink: 0;
+    }
+
+    /* ==================== Unsaved dot ==================== */
+    .unsaved-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--warning);
+      display: inline-block;
+      margin-left: 4px;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .unsaved-dot.visible { opacity: 1; }
+  </style>
+</head>
+<body>
+
+<!-- ==================== Prototype Banner ==================== -->
+<div class="proto-banner">
+  <div class="proto-banner-left">
+    <span class="proto-badge">Prototype</span>
+    <span class="proto-banner-title">Plan B: Markdownエディタ + プレビュー + 画像対応</span>
+    <span class="proto-banner-sub">— CDNのみ使用 / バックエンド不要 / ブラウザ内完結</span>
+  </div>
+  <span class="proto-banner-sub">TaskFlow 手順書ドキュメント機能 検証用</span>
+</div>
+
+<!-- ==================== App Header ==================== -->
+<div class="app-header">
+  <a class="app-logo" href="#">
+    <div class="app-logo-icon">✓</div>
+    TaskFlow
+  </a>
+
+  <div class="tab-group">
+    <button class="tab-btn active">タスク一覧</button>
+    <button class="tab-btn">ガントチャート</button>
+  </div>
+
+  <div style="display:flex;gap:8px;align-items:center;">
+    <button class="btn btn-primary btn-sm">＋ タスク追加</button>
+  </div>
+</div>
+
+<!-- ==================== Filter Bar ==================== -->
+<div class="filter-bar">
+  <input type="text" placeholder="🔍 タスクを検索…" />
+  <select>
+    <option>すべてのステータス</option>
+    <option>未着手</option>
+    <option>進行中</option>
+    <option>完了</option>
+  </select>
+  <select>
+    <option>すべての担当者</option>
+    <option>田中</option>
+    <option>佐藤</option>
+    <option>鈴木</option>
+  </select>
+  <div class="filter-separator"></div>
+  <span style="font-size:12px;color:var(--text-muted);">📄 ドキュメントアイコンをクリックして手順書を編集</span>
+</div>
+
+<!-- ==================== Main Content ==================== -->
+<div class="main-content">
+  <div class="task-list-header">
+    <div class="task-stats">
+      <span>合計 <span class="task-stat-value">5</span></span>
+      <span>進行中 <span class="task-stat-value" style="color:var(--accent);">2</span></span>
+      <span>完了 <span class="task-stat-value" style="color:var(--success);">1</span></span>
+      <span>ドキュメントあり <span class="task-stat-value" style="color:var(--accent);">3</span></span>
+    </div>
+  </div>
+
+  <table class="task-table">
+    <thead>
+      <tr>
+        <th class="task-no">No.</th>
+        <th>タスク名</th>
+        <th>担当</th>
+        <th>ステータス</th>
+        <th style="width:130px;">アクション</th>
+      </tr>
+    </thead>
+    <tbody id="task-tbody"></tbody>
+  </table>
+</div>
+
+<!-- ==================== Editor Modal ==================== -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="editor-modal" id="editor-modal">
+
+    <!-- Modal Header -->
+    <div class="modal-header">
+      <div class="modal-header-left">
+        <div class="modal-header-icon">📄</div>
+        <div>
+          <div class="modal-header-title" id="modal-task-title">タスク名</div>
+          <div class="modal-header-sub">手順書ドキュメント
+            <span class="unsaved-dot" id="unsaved-dot"></span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-header-actions">
+        <button class="btn btn-secondary btn-sm" id="btn-cancel">キャンセル</button>
+        <button class="btn btn-primary btn-sm" id="btn-save">💾 保存</button>
+        <button class="btn-icon btn-ghost" id="btn-close" title="閉じる" style="font-size:18px;color:var(--text-muted);border:none;background:transparent;cursor:pointer;">✕</button>
+      </div>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="editor-toolbar">
+      <button class="toolbar-btn" data-action="h1" title="見出し1"><span class="toolbar-btn-icon">H1</span></button>
+      <button class="toolbar-btn" data-action="h2" title="見出し2"><span class="toolbar-btn-icon">H2</span></button>
+      <button class="toolbar-btn" data-action="h3" title="見出し3"><span class="toolbar-btn-icon">H3</span></button>
+      <div class="toolbar-sep"></div>
+      <button class="toolbar-btn" data-action="bold" title="太字"><strong>B</strong></button>
+      <button class="toolbar-btn" data-action="italic" title="斜体"><em>I</em></button>
+      <div class="toolbar-sep"></div>
+      <button class="toolbar-btn" data-action="ul" title="箇条書き">• リスト</button>
+      <button class="toolbar-btn" data-action="ol" title="番号リスト">1. リスト</button>
+      <div class="toolbar-sep"></div>
+      <button class="toolbar-btn" data-action="code" title="インラインコード">`code`</button>
+      <button class="toolbar-btn" data-action="codeblock" title="コードブロック">``` ブロック</button>
+      <div class="toolbar-sep"></div>
+      <button class="toolbar-btn" data-action="link" title="リンク">🔗 リンク</button>
+      <button class="toolbar-btn" data-action="table" title="テーブル">⊞ テーブル</button>
+      <div class="toolbar-sep"></div>
+      <button class="toolbar-btn" data-action="image" title="画像を挿入">🖼 画像挿入</button>
+      <input type="file" class="toolbar-img-input" id="img-file-input" accept="image/*" />
+    </div>
+
+    <!-- Split pane body -->
+    <div class="editor-body" id="editor-body">
+
+      <!-- Editor pane -->
+      <div class="editor-pane" id="editor-pane">
+        <div class="pane-label">✏ Markdown エディタ</div>
+        <textarea
+          class="editor-textarea"
+          id="md-editor"
+          placeholder="ここにMarkdownを入力してください…"
+          spellcheck="false"
+        ></textarea>
+        <div class="editor-footer">
+          <span id="char-count">0 文字</span>
+          <span id="line-count">1 行</span>
+        </div>
+      </div>
+
+      <!-- Drag handle -->
+      <div class="drag-handle" id="drag-handle"></div>
+
+      <!-- Preview pane -->
+      <div class="preview-pane" id="preview-pane">
+        <div class="pane-label">👁 プレビュー（リアルタイム）</div>
+        <div class="preview-content">
+          <div class="md-preview" id="md-preview"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ==================== Toast Container ==================== -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- ==================== Script ==================== -->
+<script>
+  // -------- Dummy data --------
+  const ASSIGNEE_COLORS = {
+    '田中': '#4A90D9',
+    '佐藤': '#E8913A',
+    '鈴木': '#50B83C',
+  };
+
+  const STATUS_LABELS = {
+    todo: '未着手',
+    in_progress: '進行中',
+    done: '完了',
+  };
+
+  const DEFAULT_DOC = {
+    1: `## サーバー初期設定 手順書
+
+### 手順1: SSHでサーバーに接続
+
+以下のコマンドでサーバーに接続します:
+
+\`\`\`bash
+ssh user@192.168.1.100
+\`\`\`
+
+### 手順2: パッケージを更新
+
+1. \`apt update\` を実行
+2. \`apt upgrade\` を実行
+3. 再起動が必要か確認
+
+**注意:** 本番環境では必ずバックアップを取ってから実行してください。
+
+### 手順3: 設定ファイルの編集
+
+| 設定項目 | 値 | 説明 |
+|---------|-----|------|
+| MaxConnections | 100 | 最大接続数 |
+| Timeout | 30 | タイムアウト秒 |
+`,
+    2: `## DBバックアップ 手順書
+
+### 概要
+
+PostgreSQLデータベースの定期バックアップ手順を記載します。
+
+### バックアップコマンド
+
+\`\`\`bash
+pg_dump -U postgres mydb > backup_$(date +%Y%m%d).sql
+\`\`\`
+
+### リストア手順
+
+1. バックアップファイルを確認
+2. 対象DBを停止
+3. \`psql -U postgres mydb < backup.sql\` を実行
+
+> **重要:** リストア前に必ず現状のバックアップを取得してください。
+`,
+    5: `## SSL証明書更新 手順書
+
+### 更新前の確認
+
+\`\`\`bash
+openssl x509 -enddate -noout -in /etc/ssl/certs/server.crt
+\`\`\`
+
+### Let's Encrypt での更新
+
+1. certbot をインストール済みか確認
+2. \`certbot renew\` を実行
+3. Nginx を再起動: \`systemctl reload nginx\`
+
+| ステップ | コマンド | 備考 |
+|---------|---------|------|
+| 確認 | openssl x509 ... | 期限日を確認 |
+| 更新 | certbot renew | 自動更新 |
+| 再起動 | systemctl reload nginx | 設定反映 |
+`,
+  };
+
+  const tasks = [
+    { id: 1, title: 'サーバー初期設定',   assignee: '田中', status: 'in_progress', hasDoc: true },
+    { id: 2, title: 'DBバックアップ手順', assignee: '佐藤', status: 'done',        hasDoc: true },
+    { id: 3, title: 'デプロイフロー整備', assignee: '鈴木', status: 'todo',        hasDoc: false },
+    { id: 4, title: '監視アラート設定',   assignee: '田中', status: 'in_progress', hasDoc: false },
+    { id: 5, title: 'SSL証明書更新手順',  assignee: '佐藤', status: 'todo',        hasDoc: true },
+  ];
+
+  // In-memory doc store (simulates backend)
+  const docStore = { ...DEFAULT_DOC };
+  const hasDocMap = Object.fromEntries(tasks.map(t => [t.id, t.hasDoc]));
+
+  // -------- Render task table --------
+  function renderTable() {
+    const tbody = document.getElementById('task-tbody');
+    tbody.innerHTML = '';
+    tasks.forEach(task => {
+      const tr = document.createElement('tr');
+      const color = ASSIGNEE_COLORS[task.assignee] || '#8E93A6';
+      const statusLabel = STATUS_LABELS[task.status] || task.status;
+      const docClass = hasDocMap[task.id] ? 'has-doc' : 'no-doc';
+      const docTitle = hasDocMap[task.id] ? '手順書を編集' : '手順書を作成';
+
+      tr.innerHTML = `
+        <td class="task-no">#${String(task.id).padStart(3,'0')}</td>
+        <td class="task-title-cell">${escapeHtml(task.title)}</td>
+        <td>
+          <span class="assignee-chip">
+            <span class="assignee-dot" style="background:${color}"></span>
+            ${escapeHtml(task.assignee)}
+          </span>
+        </td>
+        <td><span class="status-badge status-${task.status}">${statusLabel}</span></td>
+        <td>
+          <div class="action-btns">
+            <button class="btn-doc ${docClass}" data-task-id="${task.id}" title="${docTitle}">📄</button>
+            <button class="btn-icon btn-ghost" title="編集">✏️</button>
+            <button class="btn-icon btn-ghost btn-danger-ghost" title="削除">🗑</button>
+          </div>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+    // Attach doc button events
+    tbody.querySelectorAll('.btn-doc').forEach(btn => {
+      btn.addEventListener('click', () => openEditor(parseInt(btn.dataset.taskId)));
+    });
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // -------- Editor state --------
+  let currentTaskId = null;
+  let savedContent = '';
+  let isDirty = false;
+
+  const overlay    = document.getElementById('modal-overlay');
+  const titleEl    = document.getElementById('modal-task-title');
+  const textarea   = document.getElementById('md-editor');
+  const preview    = document.getElementById('md-preview');
+  const unsavedDot = document.getElementById('unsaved-dot');
+  const charCount  = document.getElementById('char-count');
+  const lineCount  = document.getElementById('line-count');
+
+  function openEditor(taskId) {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    currentTaskId = taskId;
+    titleEl.textContent = task.title;
+
+    const content = docStore[taskId] || '';
+    textarea.value = content;
+    savedContent = content;
+    isDirty = false;
+    unsavedDot.classList.remove('visible');
+
+    updatePreview();
+    updateCounts();
+
+    overlay.classList.add('open');
+    setTimeout(() => textarea.focus(), 200);
+  }
+
+  function closeEditor() {
+    overlay.classList.remove('open');
+    currentTaskId = null;
+    isDirty = false;
+  }
+
+  function saveDoc() {
+    if (currentTaskId === null) return;
+    docStore[currentTaskId] = textarea.value;
+    savedContent = textarea.value;
+    isDirty = false;
+    unsavedDot.classList.remove('visible');
+
+    // Mark hasDoc true
+    hasDocMap[currentTaskId] = true;
+    const task = tasks.find(t => t.id === currentTaskId);
+    if (task) task.hasDoc = true;
+    renderTable();
+
+    showToast('保存しました', 'success', '✓');
+  }
+
+  // -------- Live preview --------
+  function updatePreview() {
+    const raw = textarea.value;
+    if (typeof marked !== 'undefined') {
+      preview.innerHTML = marked.parse(raw, { breaks: true });
+    } else {
+      preview.textContent = raw;
+    }
+  }
+
+  function updateCounts() {
+    const val = textarea.value;
+    charCount.textContent = val.length + ' 文字';
+    lineCount.textContent = val.split('\n').length + ' 行';
+  }
+
+  textarea.addEventListener('input', () => {
+    updatePreview();
+    updateCounts();
+    if (textarea.value !== savedContent) {
+      isDirty = true;
+      unsavedDot.classList.add('visible');
+    } else {
+      isDirty = false;
+      unsavedDot.classList.remove('visible');
+    }
+  });
+
+  // -------- Toolbar actions --------
+  function insertAtCursor(before, after = '', defaultText = '') {
+    const ta = textarea;
+    const start = ta.selectionStart;
+    const end   = ta.selectionEnd;
+    const sel   = ta.value.substring(start, end) || defaultText;
+    const replacement = before + sel + after;
+    ta.setRangeText(replacement, start, end, 'select');
+    // Move cursor if no selection
+    if (start === end) {
+      const pos = start + before.length + sel.length;
+      ta.setSelectionRange(pos, pos);
+    }
+    ta.focus();
+    updatePreview();
+    updateCounts();
+    // Trigger dirty
+    ta.dispatchEvent(new Event('input'));
+  }
+
+  function insertLinePrefix(prefix) {
+    const ta = textarea;
+    const start = ta.selectionStart;
+    const lineStart = ta.value.lastIndexOf('\n', start - 1) + 1;
+    ta.setRangeText(prefix, lineStart, lineStart, 'end');
+    ta.focus();
+    updatePreview();
+    ta.dispatchEvent(new Event('input'));
+  }
+
+  const TOOLBAR_ACTIONS = {
+    h1:        () => insertLinePrefix('# '),
+    h2:        () => insertLinePrefix('## '),
+    h3:        () => insertLinePrefix('### '),
+    bold:      () => insertAtCursor('**', '**', '太字テキスト'),
+    italic:    () => insertAtCursor('*', '*', '斜体テキスト'),
+    ul:        () => insertLinePrefix('- '),
+    ol:        () => insertLinePrefix('1. '),
+    code:      () => insertAtCursor('`', '`', 'code'),
+    codeblock: () => insertAtCursor('```\n', '\n```', 'コードをここに'),
+    link:      () => insertAtCursor('[', '](https://example.com)', 'リンクテキスト'),
+    table: () => insertAtCursor('', '', '') || (() => {
+      const tbl = `| 列1 | 列2 | 列3 |\n|-----|-----|-----|\n| A   | B   | C   |\n`;
+      insertAtCursor(tbl, '', '');
+    })(),
+    image: () => document.getElementById('img-file-input').click(),
+  };
+
+  // Special: table needs different handling
+  document.querySelectorAll('.toolbar-btn').forEach(btn => {
+    const action = btn.dataset.action;
+    if (!action) return;
+    btn.addEventListener('click', () => {
+      if (action === 'table') {
+        const tbl = `\n| 列1 | 列2 | 列3 |\n|-----|-----|-----|\n| A   | B   | C   |\n`;
+        const ta = textarea;
+        const pos = ta.selectionStart;
+        ta.setRangeText(tbl, pos, pos, 'end');
+        ta.focus();
+        updatePreview();
+        ta.dispatchEvent(new Event('input'));
+      } else if (TOOLBAR_ACTIONS[action]) {
+        TOOLBAR_ACTIONS[action]();
+      }
+    });
+  });
+
+  // Image file input
+  document.getElementById('img-file-input').addEventListener('change', function() {
+    const file = this.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const blobUrl = e.target.result; // data URL
+      const alt = file.name.replace(/\.[^.]+$/, '');
+      insertAtCursor(`![${alt}](${blobUrl})`, '', '');
+    };
+    reader.readAsDataURL(file);
+    this.value = '';
+  });
+
+  // -------- Modal controls --------
+  document.getElementById('btn-save').addEventListener('click', saveDoc);
+  document.getElementById('btn-cancel').addEventListener('click', () => {
+    if (isDirty) {
+      if (confirm('変更が保存されていません。閉じますか？')) closeEditor();
+    } else {
+      closeEditor();
+    }
+  });
+  document.getElementById('btn-close').addEventListener('click', () => {
+    if (isDirty) {
+      if (confirm('変更が保存されていません。閉じますか？')) closeEditor();
+    } else {
+      closeEditor();
+    }
+  });
+
+  // Click outside to close
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) {
+      if (isDirty) {
+        if (confirm('変更が保存されていません。閉じますか？')) closeEditor();
+      } else {
+        closeEditor();
+      }
+    }
+  });
+
+  // Keyboard: Ctrl+S to save, Escape to close
+  document.addEventListener('keydown', (e) => {
+    if (!overlay.classList.contains('open')) return;
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      saveDoc();
+    }
+    if (e.key === 'Escape') {
+      if (isDirty) {
+        if (confirm('変更が保存されていません。閉じますか？')) closeEditor();
+      } else {
+        closeEditor();
+      }
+    }
+  });
+
+  // -------- Drag-to-resize split pane --------
+  const dragHandle = document.getElementById('drag-handle');
+  const editorPane = document.getElementById('editor-pane');
+  const editorBody = document.getElementById('editor-body');
+
+  let isDragging = false;
+  let startX = 0;
+  let startWidth = 0;
+
+  dragHandle.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    startX = e.clientX;
+    startWidth = editorPane.offsetWidth;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    const dx = e.clientX - startX;
+    const totalW = editorBody.offsetWidth;
+    const newW = Math.max(200, Math.min(totalW - 200, startWidth + dx));
+    editorPane.style.width = newW + 'px';
+    editorPane.style.flex = 'none';
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!isDragging) return;
+    isDragging = false;
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  });
+
+  // Set initial 50% width after modal opens
+  function resetPaneWidths() {
+    editorPane.style.flex = '1';
+    editorPane.style.width = '';
+  }
+
+  // -------- Toast --------
+  function showToast(message, type = 'success', icon = '') {
+    const container = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.innerHTML = `<span>${icon}</span><span>${message}</span>`;
+    container.appendChild(toast);
+    setTimeout(() => {
+      toast.classList.add('fade-out');
+      setTimeout(() => toast.remove(), 280);
+    }, 2400);
+  }
+
+  // -------- Init --------
+  // Configure marked
+  if (typeof marked !== 'undefined') {
+    marked.setOptions({ breaks: true, gfm: true });
+  }
+
+  renderTable();
+</script>
+</body>
+</html>
