@@ -115,32 +115,3 @@ def register_routes(app):
         db.commit()
         return jsonify({'status': 'ok'})
 
-    # --- Document API ---
-
-    @app.route('/api/tasks/<int:task_id>/document', methods=['GET'])
-    def get_document(task_id):
-        db = get_db()
-        row = db.execute(
-            "SELECT content, updated_at FROM task_documents WHERE task_id = ?", (task_id,)
-        ).fetchone()
-        if row:
-            return jsonify({'content': row['content'], 'updated_at': row['updated_at']})
-        return jsonify({'content': '', 'updated_at': None})
-
-    @app.route('/api/tasks/<int:task_id>/document', methods=['PUT'])
-    def save_document(task_id):
-        data = request.json
-        content = data.get('content', '')
-        db = get_db()
-        if not db.execute("SELECT 1 FROM tasks WHERE id = ?", (task_id,)).fetchone():
-            return jsonify({'error': 'タスクが見つかりません'}), 404
-        db.execute(
-            """INSERT INTO task_documents (task_id, content, updated_at)
-               VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
-               ON CONFLICT(task_id) DO UPDATE SET
-                 content = excluded.content,
-                 updated_at = excluded.updated_at""",
-            (task_id, content),
-        )
-        db.commit()
-        return jsonify({'status': 'ok'})

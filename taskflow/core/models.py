@@ -1,8 +1,7 @@
 """タスク・ユーザーのSQL定数"""
 
 TASK_SELECT = """
-    SELECT t.*, u.name AS assignee_name, u.color AS assignee_color,
-           COALESCE((SELECT 1 FROM task_documents d WHERE d.task_id = t.id), 0) AS has_document
+    SELECT t.*, u.name AS assignee_name, u.color AS assignee_color
     FROM tasks t
     LEFT JOIN users u ON t.assignee_id = u.id
 """
