@@ -27,12 +27,34 @@
 
 ### 簡単起動（推奨）
 
-`start.bat` をダブルクリックするだけで、環境構築から起動まで自動で行います。
+OS に合わせて下記のファイルをダブルクリックするだけで、環境構築から起動まで自動で行います。
+
+- **Windows**: `start.bat` をダブルクリック
+- **Mac**: `start.command` をダブルクリック（自動でブラウザも開きます）
+
+どちらも同じ処理を行います:
 
 - Python がインストールされているか確認
 - 仮想環境（venv）がなければ自動作成
 - 依存パッケージがなければ自動インストール
 - アプリを起動してブラウザで http://localhost:5000 にアクセス
+
+#### Mac で初回起動時の注意
+
+`start.command` を初めて開くとき、macOS のセキュリティ設定により下記のように表示されることがあります。
+
+> "start.command" は、開発元を確認できないため開けません。
+
+その場合は以下のいずれかで開いてください。
+
+1. Finder で `start.command` を **右クリック（または Control + クリック）→ "開く"** を選択 → ダイアログで **"開く"** をクリック
+2. 上記操作は初回のみ必要で、2 回目以降はダブルクリックで起動できます
+
+もしダブルクリック時に「実行権限がない」旨のエラーが出た場合は、ターミナルで以下を一度だけ実行してください。
+
+```bash
+chmod +x start.command
+```
 
 ### 手動セットアップ（コマンドで実行する場合）
 
@@ -70,8 +92,11 @@ venv\Scripts\activate.bat
 # Windows PowerShell
 venv\Scripts\Activate.ps1
 
-# Windows Git Bash / Mac / Linux
+# Windows Git Bash
 source venv/Scripts/activate
+
+# Mac / Linux
+source venv/bin/activate
 ```
 
 有効化すると、プロンプトの先頭に `(venv)` が表示されます。
@@ -101,10 +126,19 @@ python app.py
 
 ### 2回目以降の起動
 
+`start.bat` (Windows) / `start.command` (Mac) をダブルクリックすれば OK です。
+コマンドで起動する場合は下記の通りです。
+
 ```bash
-cd taskflow                      # フォルダに移動
-venv\Scripts\activate.bat        # 仮想環境を有効化（Windows）
-python app.py                    # 起動
+# Windows
+cd taskflow
+venv\Scripts\activate.bat
+python app.py
+
+# Mac / Linux
+cd taskflow
+source venv/bin/activate
+python app.py
 ```
 
 ### アプリの停止
