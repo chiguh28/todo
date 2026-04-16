@@ -14,7 +14,7 @@ Extensions can be added by placing packages inside the `extensions/` folder.
 source venv/Scripts/activate   # Windows Git Bash
 pip install -r requirements.txt
 
-# Start the server (serves on http://localhost:5000)
+# Start the server (serves on http://localhost:5050)
 python app.py
 # or: python -m taskflow
 ```

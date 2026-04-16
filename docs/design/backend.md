@@ -17,7 +17,7 @@
 ```
 [ブラウザ]
     |
-    | HTTP (port 5000)
+    | HTTP (port 5050)
     v
 [Flask アプリ]
     |
@@ -66,7 +66,7 @@ tasks.db                  # SQLite データベース（自動生成、.gitignor
 
 | モジュール | 責務 |
 |-----------|------|
-| `app.py` | `create_app()` を呼び出し `app.run(debug=True, host='0.0.0.0', port=5000)` で起動するだけの薄いランチャー。ロジックを追加しない。 |
+| `app.py` | `create_app()` を呼び出し `app.run(debug=True, host='0.0.0.0', port=5050)` で起動するだけの薄いランチャー。ロジックを追加しない。 |
 | `taskflow/__init__.py` | Flaskアプリの生成・設定・初期化を一手に担うファクトリ。DB初期化 → コアルート登録 → 拡張ロード → 拡張API定義の順で実行。 |
 | `taskflow/__main__.py` | `python -m taskflow` 実行時のエントリポイント。`create_app()` を呼んで起動する。 |
 | `core/database.py` | DB接続のライフサイクル管理（取得・クローズ）、テーブル定義、マイグレーション、初期データ投入。 |
@@ -348,5 +348,5 @@ python app.py
         │     └── 各拡張: init_db → Blueprint登録 → 静的配信Blueprint登録
         ├── /api/extensions ルート定義
         └── return app
-  └── app.run(debug=True, host='0.0.0.0', port=5000)
+  └── app.run(debug=True, host='0.0.0.0', port=5050)
 ```
