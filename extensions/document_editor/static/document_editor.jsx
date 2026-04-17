@@ -1,5 +1,6 @@
 (() => {
-  const { useState, useEffect, useRef, createPortal } = React;
+  const { useState, useEffect, useRef } = React;
+  const { createPortal } = ReactDOM;
 
   // ============ DocumentModal ============
   function DocumentModal({ task, onClose }) {
