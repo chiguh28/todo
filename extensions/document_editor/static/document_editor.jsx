@@ -1,11 +1,13 @@
 (() => {
-  const { useState, useEffect, useRef, createPortal } = React;
+  const { useState, useEffect, useRef } = React;
+  const { createPortal } = ReactDOM;
 
   // ============ DocumentModal ============
   function DocumentModal({ task, onClose }) {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
+    const [error, setError] = useState(null);
     const quillContainerRef = useRef(null);
     const quillRef = useRef(null);
     const fileInputRef = useRef(null);
@@ -17,28 +19,40 @@
     }, []);
 
     useEffect(() => {
-      const q = new Quill(quillContainerRef.current, {
-        theme: 'snow',
-        modules: {
-          toolbar: {
-            container: [
-              [{ header: [1, 2, 3, false] }],
-              ['bold', 'italic', 'underline'],
-              [{ list: 'ordered' }, { list: 'bullet' }],
-              ['link', 'image', 'code-block'],
-              ['clean'],
-            ],
-            handlers: {
-              image: () => fileInputRef.current && fileInputRef.current.click(),
+      if (typeof Quill === 'undefined') {
+        setError('エディタの読み込みに失敗しました。ページを再読み込みしてください。');
+        setLoading(false);
+        return;
+      }
+      try {
+        const q = new Quill(quillContainerRef.current, {
+          theme: 'snow',
+          modules: {
+            toolbar: {
+              container: [
+                [{ header: [1, 2, 3, false] }],
+                ['bold', 'italic', 'underline'],
+                [{ list: 'ordered' }, { list: 'bullet' }],
+                ['link', 'image', 'code-block'],
+                ['clean'],
+              ],
+              handlers: {
+                image: () => fileInputRef.current && fileInputRef.current.click(),
+              },
             },
           },
-        },
-      });
-      quillRef.current = q;
-      TaskFlow.api.get(`/api/tasks/${task.id}/document`).then(data => {
-        if (data.content) q.root.innerHTML = data.content;
+        });
+        quillRef.current = q;
+        TaskFlow.api.get(`/api/tasks/${task.id}/document`).then(data => {
+          if (data.content) q.root.innerHTML = data.content;
+          setLoading(false);
+        }).catch(() => {
+          setLoading(false);
+        });
+      } catch (e) {
+        setError('エディタの初期化に失敗しました。ページを再読み込みしてください。');
         setLoading(false);
-      });
+      }
     }, []);
 
     const handleSave = async () => {
@@ -120,6 +134,7 @@
 
           <div className="doc-modal-body">
             {loading && <div className="doc-loading">読み込み中...</div>}
+            {error && <div className="doc-loading">{error}</div>}
             <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
               <div ref={quillContainerRef} className="doc-quill-container" />
             </div>

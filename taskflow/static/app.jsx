@@ -1,4 +1,4 @@
-const { useState, useEffect, useRef, useCallback, useMemo, createPortal } = React;
+const { useState, useEffect, useRef, useCallback, useMemo } = React;
 
 // ============ 複数選択ドロップダウン ============
 function MultiSelectDropdown({ label, options, selected, onChange }) {
